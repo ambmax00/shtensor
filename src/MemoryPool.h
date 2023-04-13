@@ -1,5 +1,5 @@
-#ifndef SHTENSOR_MEMMANAGER_H
-#define SHTENSOR_MEMMANAGER_H
+#ifndef SHTENSOR_MEMORYPOOL_H
+#define SHTENSOR_MEMORYPOOL_H
 
 #include <cstddef>
 #include <cstdint>
@@ -12,7 +12,7 @@
 namespace Shtensor 
 {
 
-class MemManager 
+class MemoryPool 
 {
  public: 
 
@@ -35,7 +35,7 @@ class MemManager
     }
   };
 
-  MemManager(const Context& _ctx, std::size_t _max_size)
+  MemoryPool(const Context& _ctx, std::size_t _max_size)
     : m_ctx(_ctx)
     , m_max_size(_max_size)
     , m_p_data(nullptr)
@@ -60,7 +60,7 @@ class MemManager
 
   }
 
-  ~MemManager()
+  ~MemoryPool()
   {
     release();
   }

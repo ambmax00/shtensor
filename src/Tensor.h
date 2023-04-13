@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "Context.h"
+#include "MemoryPool.h"
 
 namespace Shtensor 
 {
@@ -36,7 +37,7 @@ class Shtensor
 
   const Context& m_ctx;
 
-  const VArray& m_block_sizes;
+  const VArray<N>& m_block_sizes;
   
 };
 

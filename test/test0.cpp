@@ -2,7 +2,7 @@
 #include <stdio.h>
 
 #include "Context.h"
-#include "MemManager.h"
+#include "MemoryPool.h"
 #include "TestUtils.h"
 
 int main(int argc, char** argv)
@@ -22,9 +22,9 @@ int main(int argc, char** argv)
 
     printf("Hello from process %d on host %s\n", ctx.get_rank(), host);
 
-    const std::size_t pool_memory = Shtensor::MemManager::KB;
+    const std::size_t pool_memory = Shtensor::MemoryPool::KB;
 
-    Shtensor::MemManager memManager(ctx,pool_memory);
+    Shtensor::MemoryPool memManager(ctx,pool_memory);
 
     const std::size_t nb_elements = 16;
 
@@ -33,7 +33,7 @@ int main(int argc, char** argv)
     SHTENSOR_DO_BY_RANK(ctx, (memManager.print_info()));
 
     const std::size_t comp_mem = pool_memory - nb_elements*sizeof(float) 
-                                 - 2*sizeof(Shtensor::MemManager::Chunk);
+                                 - 2*sizeof(Shtensor::MemoryPool::Chunk);
 
     SHTENSOR_TEST_EQUAL(memManager.get_free_mem(), comp_mem, result);
 
@@ -48,7 +48,7 @@ int main(int argc, char** argv)
     SHTENSOR_DO_BY_RANK(ctx, (memManager.print_info()));
 
     SHTENSOR_TEST_EQUAL(memManager.get_free_mem(), 
-                        pool_memory-sizeof(Shtensor::MemManager::Chunk), result);
+                        pool_memory-sizeof(Shtensor::MemoryPool::Chunk), result);
 
   }
 
