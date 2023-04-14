@@ -12,7 +12,6 @@ int main(int argc, char** argv)
   int result = 0;
 
   {
-
     char host[MPI_MAX_PROCESSOR_NAME];
     int len = -1;
 
@@ -22,7 +21,7 @@ int main(int argc, char** argv)
 
     printf("Hello from process %d on host %s\n", ctx.get_rank(), host);
 
-    const std::size_t pool_memory = Shtensor::MemoryPool::KB;
+    const std::size_t pool_memory = Shtensor::MemoryPool::KiB;
 
     Shtensor::MemoryPool memManager(ctx,pool_memory);
 

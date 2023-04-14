@@ -22,9 +22,10 @@ class Shtensor
 
  public: 
   
-  Shtensor(const Context& _ctx, const VArray<N>& _block_sizes) noexcept
+  Shtensor(const Context& _ctx, const VArray<N>& _block_sizes, MemoryPool& _mempool) noexcept
     : m_ctx(_ctx) 
     , m_block_sizes(_block_sizes) 
+    , m_pool(_mempool)
   {
   }
 
@@ -35,9 +36,11 @@ class Shtensor
 
  private: 
 
-  const Context& m_ctx;
+  const Context m_ctx;
 
-  const VArray<N>& m_block_sizes;
+  const VArray<N> m_block_sizes;
+
+  MemoryPool m_pool;
   
 };
 
