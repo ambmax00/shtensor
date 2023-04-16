@@ -40,7 +40,7 @@ class MemoryPool
   ~MemoryPool();
 
   template <typename T>
-  T* allocate(std::size_t _size);
+  [[nodiscard]] T* allocate(std::size_t _size);
 
   template <typename T>
   void free(T* _p_array);

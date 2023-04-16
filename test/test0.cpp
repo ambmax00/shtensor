@@ -3,6 +3,7 @@
 
 #include "Context.h"
 #include "MemoryPool.h"
+#include "Tensor.h"
 #include "TestUtils.h"
 
 int main(int argc, char** argv)
@@ -48,6 +49,29 @@ int main(int argc, char** argv)
 
     SHTENSOR_TEST_EQUAL(memManager.get_free_mem(), 
                         pool_memory-sizeof(Shtensor::MemoryPool::Chunk), result);
+
+    std::vector<int> dim0 = {4,5,3,4};
+    std::vector<int> dim1 = {5,5,8,9,2};
+    std::vector<int> dim2 = {5,6,3,7,7,9};
+ 
+    Shtensor::VArray<3> block_sizes = {dim0,dim1,dim2};
+
+    Shtensor::Block<3,double> block({5,6,3});
+
+    std::iota(block.begin(), block.end(), 0);
+
+    for (int i = 0; i < block.dim(0); ++i)
+    {
+      for (int j = 0; j < block.dim(1); ++j)
+      {
+        for (int k = 0; k < block.dim(2); ++k)
+        {
+          printf("Block(%d,%d,%d) = %f\n", i, j, k, block(i,j,k));
+        }
+      }
+    }
+
+    auto tensor = Shtensor::Tensor<3,double>(ctx, block_sizes, memManager);
 
   }
 

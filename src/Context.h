@@ -11,6 +11,18 @@ class Context
 {
  public: 
   
+  static inline auto s_comm_deleter = [](MPI_Comm* _p_comm)
+  {
+    if (_p_comm)
+    {
+      if (*_p_comm != MPI_COMM_NULL)
+      {
+        MPI_Comm_free(_p_comm);
+      }
+      delete _p_comm;
+    }
+  };
+
   Context(MPI_Comm _comm, bool _attach = false);
 
   Context(const Context& _ctx) = default;
