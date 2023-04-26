@@ -22,7 +22,7 @@ int main(int argc, char** argv)
 
     printf("Hello from process %d on host %s\n", ctx.get_rank(), host);
 
-    const std::size_t pool_memory = Shtensor::MemoryPool::KiB;
+    const std::size_t pool_memory = Shtensor::MemoryPool::MiB;
 
     Shtensor::MemoryPool memManager(ctx,pool_memory);
 
@@ -56,7 +56,7 @@ int main(int argc, char** argv)
  
     Shtensor::VArray<3> block_sizes = {dim0,dim1,dim2};
 
-    Shtensor::Block<3,double> block({5,6,3});
+    Shtensor::Block<double,3> block({5,6,3});
 
     std::iota(block.begin(), block.end(), 0);
 
@@ -71,7 +71,32 @@ int main(int argc, char** argv)
       }
     }
 
-    auto tensor = Shtensor::Tensor<3,double>(ctx, block_sizes, memManager);
+    std::array<std::size_t,5> sizes5 = {10,5,85,100,12};
+    auto strides5 = Shtensor::Utils::compute_strides(sizes5);
+
+    std::size_t long_idx = Shtensor::Utils::roll_indices(strides5, 5, 2, 75, 25, 3);
+
+    printf("Long index: %ld\n", long_idx);
+
+    std::array<int,5> indices5;
+
+    Shtensor::Utils::unroll_index(strides5, long_idx, indices5);
+
+    printf("Short idx: %d, %d, %d, %d, %d\n", indices5[0], indices5[1], indices5[2], indices5[3], indices5[4]);
+
+    auto tensor0 = Shtensor::Tensor<double,3>(ctx, block_sizes, memManager);
+
+    const std::vector<int> idx0 = {0,0,0,1,2,2,3,3,3};
+    const std::vector<int> idx1 = {0,0,1,0,2,3,2,3,4};
+    const std::vector<int> idx2 = {0,1,1,0,1,2,0,1,2};
+
+    Shtensor::VArray<3> indices = {idx0, idx1, idx2};
+
+    tensor0.reserve(indices);
+
+    tensor0.print_info();
+
+    memManager.print_info();
 
   }
 

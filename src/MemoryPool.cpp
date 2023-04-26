@@ -3,7 +3,7 @@
 namespace Shtensor 
 {
   
-MemoryPool::MemoryPool(const Context& _ctx, std::size_t _max_size)
+MemoryPool::MemoryPool(const Context& _ctx, int64_t _max_size)
   : m_ctx(_ctx)
   , m_max_size(_max_size)
   , m_p_data(nullptr)
@@ -38,9 +38,9 @@ MemoryPool::MemoryPool(const Context& _ctx, std::size_t _max_size)
   p_start_chunk->free = true;
   p_start_chunk->prev = nullptr;
   p_start_chunk->next = nullptr;
-  p_start_chunk->data_size = m_max_size-sizeof(Chunk);
+  p_start_chunk->data_size = m_max_size-SSIZEOF(Chunk);
 
-  m_free_mem -= sizeof(Chunk);
+  m_free_mem -= SSIZEOF(Chunk);
 
 }
 

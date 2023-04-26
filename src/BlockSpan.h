@@ -1,6 +1,8 @@
 #ifndef SHTENSOR_BLOCKSPAN_H
 #define SHTENSOR_BLOCKSPAN_H
 
+#include "Utils.h"
+
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -12,8 +14,8 @@
 namespace Shtensor 
 {
 
-template <int N, typename T>
-class BlockSpan
+template <typename T>
+class Span
 {
  public:
 
@@ -21,29 +23,84 @@ class BlockSpan
 
   using const_iterator = T const*;
 
-  template <int M = N, typename std::enable_if<M == 1,int>::type = 0>
-  BlockSpan(T* _p_data, std::size_t _size)
+  Span()
+    : m_p_data(nullptr)
+    , m_size(0)
+  {
+  }
+
+  Span(T* _p_data, int64_t _size)
     : m_p_data(_p_data)
-    , m_dims({_size})
-    , m_strides({1})
     , m_size(_size)
   {
   }
 
-  BlockSpan(T* _p_data, const std::array<std::size_t,N>& _dims)
-    : m_p_data(_p_data)
-    , m_dims(_dims)
-    , m_strides({})
-    , m_size(std::accumulate(_dims.begin(), _dims.end(), 1ul, std::multiplies<std::size_t>()))
+  Span(const Span& _span) = default;
+
+  Span(Span&& _span) = default;
+
+  Span& operator=(const Span& _span) = default;
+
+  Span& operator=(Span&& _span) = default;
+
+  ~Span() {}
+
+  iterator begin() { return m_p_data; }
+
+  iterator end() { return m_p_data + m_size; }
+
+  const_iterator begin() const { return m_p_data; }
+
+  const_iterator end() const { return m_p_data + m_size; }
+
+  std::size_t size() const { return static_cast<std::size_t>(m_size); }
+
+  int64_t ssize() const { return m_size; }
+
+  T& operator[](int64_t _idx)
   {
-    std::generate(m_strides.begin(), m_strides.end(), 
-      [dims=m_dims,i=0]() mutable
-      {
-        std::size_t stride = std::accumulate(dims.begin(), dims.begin()+i, 1.0, 
-                                             std::multiplies<std::size_t>());
-        ++i;
-        return stride;
-      });
+    return m_p_data[_idx];
+  }
+
+  const T& operator[](int64_t _idx) const
+  {
+    return m_p_data[_idx];
+  }
+
+  void swap(T* _pointer)
+  {
+    m_p_data = _pointer;
+  }
+
+ protected: 
+
+  T* m_p_data; 
+
+  int64_t m_size;
+
+};
+
+template <typename T, int N>
+class BlockSpan : public Span<T>
+{
+ public:
+
+  using iterator = T*;
+
+  using const_iterator = T const*;
+
+  BlockSpan()
+    : Span<T>(nullptr, 0)
+    , m_dims({})
+    , m_strides({})
+  {
+  }
+
+  BlockSpan(T* _p_data, const std::array<int,N>& _dims)
+    : Span<T>(_p_data, std::accumulate(_dims.begin(), _dims.end(), 1, std::multiplies<int64_t>()))
+    , m_dims(_dims)
+    , m_strides(Utils::compute_strides(_dims))
+  {
   }
 
   BlockSpan(const BlockSpan& _span) = default;
@@ -56,73 +113,36 @@ class BlockSpan
 
   ~BlockSpan() {}
 
-  iterator begin() { return m_p_data; }
-
-  iterator end() { return m_p_data + m_size; }
-
-  const_iterator begin() const { return m_p_data; }
-
-  const_iterator end() const { return m_p_data + m_size; }
-
-  std::size_t size() const { return m_size; }
-
-  std::size_t dim(int i) const { return m_dims[i]; }
+  int dim(int i) const { return m_dims[i]; }
 
   template <class... Idx>
   T& operator()(Idx... _idx)
   {
-    return access<Idx...>(std::forward<Idx>(_idx)..., std::make_index_sequence<N>{});
+    return this->m_p_data[Utils::roll_indices(m_strides, std::forward<Idx>(_idx)...)];
   }
 
   template <class... Idx>
   const T& operator()(Idx... _idx) const 
   {
-    return access(_idx..., std::make_index_sequence<N>{});
-  }
-
- protected:
-
-  void swap(T* _pointer)
-  {
-    m_p_data = _pointer;
+    return this->m_p_data[Utils::roll_indices(m_strides, std::forward<Idx>(_idx)...)];
   }
 
  private: 
 
-  template <typename I>
-  static inline constexpr bool is_valid_index()
-  {
-    return std::is_same<I,std::size_t>::value 
-            || std::is_same<I,int>::value 
-            || std::is_same<I,int64_t>::value;
-  }
+  std::array<int,N> m_dims;
 
-  template <class... Idx, std::size_t... Is> 
-  inline T& access(Idx... _idx, std::index_sequence<Is...> const &)
-  {
-    static_assert((is_valid_index<Idx>() && ...), "Indices do not have correct type");
-    static_assert(sizeof...(_idx) == N, "Incorrect number of indices passed to operator()"); 
-    return m_p_data[((_idx*m_strides[Is]) + ...)];
-  }
-
-  T* m_p_data; 
-
-  std::array<std::size_t,N> m_dims;
-
-  std::array<std::size_t,N> m_strides;
-
-  std::size_t m_size;
+  std::array<int,N> m_strides;
 
 };
 
 
-template <int N, typename T>
-class Block : public BlockSpan<N,T>
+template <typename T, int N>
+class Block : public BlockSpan<T,N>
 {
  public:
   
-  Block(const std::array<std::size_t,N>& _block_sizes) 
-    : BlockSpan<N,T>(nullptr,_block_sizes)
+  Block(const std::array<int,N>& _block_sizes) 
+    : BlockSpan<T,N>(nullptr,_block_sizes)
     , m_p_storage(nullptr)
   {
     m_p_storage.reset(new T[this->size()]);
@@ -130,7 +150,7 @@ class Block : public BlockSpan<N,T>
   }
 
   Block(const Block& _block)
-    : BlockSpan<N,T>(_block)
+    : BlockSpan<T,N>(_block)
     , m_p_storage(nullptr)
   {
     m_p_storage.reset(new T[this->size()]);
@@ -144,7 +164,7 @@ class Block : public BlockSpan<N,T>
   {
     if (&_block == this) return *this;
 
-    BlockSpan<N,T>::operator=(_block);
+    BlockSpan<T,N>::operator=(_block);
     m_p_storage.reset(new T[this->size()]);
     std::copy(_block.begin(), _block.end(), m_p_storage.get());
     this->swap(m_p_storage.get());
@@ -158,7 +178,6 @@ class Block : public BlockSpan<N,T>
   std::unique_ptr<T[]> m_p_storage;
 
 };
-
 
 } // end namespace
 

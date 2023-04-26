@@ -30,6 +30,11 @@ done
 
 directory=$1
 
+if [ -z "$directory" ]; then
+  echo "Usage: ./launch.sh --nodes=n --procs=p TRUNK_DIR"
+  exit 0
+fi
+
 echo "Launching $nodes containers with $procs processes each"
 
 echo "Attaching to directory $directory"
