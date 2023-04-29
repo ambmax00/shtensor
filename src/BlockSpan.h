@@ -158,6 +158,15 @@ class Block : public BlockSpan<T,N>
     this->swap(m_p_storage.get());
   }
 
+  Block(const BlockSpan<T,N>& _block_span)
+    : BlockSpan<T,N>(_block_span)
+    , m_p_storage(nullptr)
+  {
+    m_p_storage.reset(new T[this->size()]);
+    std::copy(_block_span.begin(), _block_span.end(), m_p_storage.get());
+    this->swap(m_p_storage.get());
+  }
+
   Block(Block&& _block) = default;
 
   Block& operator=(const Block& _block)

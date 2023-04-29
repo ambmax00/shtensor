@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <functional>
 #include <numeric>
 #include <vector>
 
@@ -160,6 +161,50 @@ static inline void unroll_index(const StrideArray& _strides,
                                 IndexArray& _indices)
 {
   unroll_index_impl(_strides, _idx, _indices, std::make_index_sequence<_strides.size()>{});
+}
+
+template <int N>
+using LoopIndexFunction = std::function<void(const std::array<int,N>& _loop_indices)>;
+
+template <int N, int Step, class MultiArray>
+static inline void loop_internal(const MultiArray& _array, const LoopIndexFunction<N>& _func, 
+                                 std::array<int,N>& _idx)
+{
+  if constexpr (Step == N) 
+  {
+    _func(_idx);
+  }
+  else 
+  {
+    for (int64_t i = 0; i < Utils::ssize(_array[Step]); ++i)
+    {
+      _idx[Step] = i;
+      loop_internal<N,Step+1,MultiArray>(_array, _func, _idx);
+    }
+  }
+}
+
+template <int N, class MultiArray>
+static inline void loop(const MultiArray& _array, const LoopIndexFunction<N>& _func)
+{
+  std::array<int,N> idx = {};
+  loop_internal<N,0,MultiArray>(_array,_func,idx);
+}
+
+template <class MultiArray>
+static inline int64_t varray_ssize(const MultiArray& _array)
+{
+  return std::accumulate(_array.begin(), _array.end(), 1l, 
+    [](int64_t sum, const auto& sub_array){ return sum*ssize(sub_array); });
+}
+
+template <class MultiArray>
+static inline auto varray_get_sizes(const MultiArray& _array)
+{
+  std::array<int64_t,_array.size()> out;
+  std::generate(out.begin(), out.end(), 
+    [&_array,i=0]() mutable { return Utils::ssize(_array[i++]); });
+  return out;
 }
 
 } // end namespace Utils 

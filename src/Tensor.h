@@ -67,8 +67,7 @@ class Tensor
                             return _prod *= Utils::ssize(_sizes);
                           });
 
-    std::generate(m_block_dims.begin(), m_block_dims.end(), 
-                  [i=0,this]() mutable { return Utils::ssize(m_block_sizes[i++]); });
+    m_block_dims = Utils::varray_get_sizes(m_block_sizes);
 
     m_block_strides = Utils::compute_strides(m_block_dims);
 
@@ -92,13 +91,9 @@ class Tensor
   {
   }
 
-  VArray<N> get_local_indices() const 
+  const VArray<N>& get_local_indices() const 
   {
-    //VArray<N> out;
-
-
-
-
+    return m_block_idx_local;
   }
 
   std::size_t get_dim_size(int i)
@@ -106,6 +101,29 @@ class Tensor
     //if (i < N || i >= N) return 0;
 
     //return std::accumulate(m_block_sizes[i].begin(), m_block_sizes[i].end(), std::size_t(0));
+  }
+
+  void reserve_all()
+  {
+    const int64_t nb_blocks_local = Utils::varray_ssize(m_block_idx_local);
+
+    VArray<N> indices;
+    std::fill(indices.begin(), indices.end(), std::vector<int>(nb_blocks_local));
+
+    Utils::LoopIndexFunction<N> func = 
+    [&indices,this,iloop=0](const std::array<int,N>& loop_idx) mutable
+    {
+      for (int idim = 0; idim < N; ++idim)
+      {
+        indices[idim][iloop] = m_block_idx_local[idim][loop_idx[idim]];
+      }
+      iloop++;
+    };
+
+    Utils::loop<N>(m_block_idx_local, func);
+
+    reserve(indices);
+  
   }
 
   void reserve(const VArray<N>& _block_idx)
@@ -161,22 +179,22 @@ class Tensor
     std::copy(nb_slices_row.begin(), nb_slices_row.end(), m_sparse_info.row_idx.begin());
 
     // create rolled index array
-    constexpr int nb_rolled_dims = N-1;
-    m_sparse_info.strides[0] = 1;
+    //constexpr int nb_rolled_dims = N-1;
+    //m_sparse_info.strides[0] = 1;
     
-    for (int idim = 1; idim < nb_rolled_dims; ++idim)
-    {
-      m_sparse_info.strides[idim] = m_sparse_info.strides[idim-1]
-                                    *Utils::ssize(m_block_sizes[idim]);
-    }
+    //for (int idim = 1; idim < nb_rolled_dims; ++idim)
+    //{
+    //  m_sparse_info.strides[idim] = m_sparse_info.strides[idim-1]
+    //                                *Utils::ssize(m_block_sizes[idim]);
+    //}
 
     std::vector<int64_t> rolled_idx(nb_blocks, 0);
 
     for (int iblk = 0; iblk < nb_blocks; ++iblk)
     {
-      for (int idim = 0; idim < nb_rolled_dims; ++idim)
+      for (int idim = 0; idim < N; ++idim)
       {
-        rolled_idx[iblk] += _block_idx[idim+1][iblk]*m_sparse_info.strides[idim];
+        rolled_idx[iblk] += _block_idx[idim][iblk]*m_block_strides[idim];
       } 
     }
 
@@ -185,11 +203,9 @@ class Tensor
     std::iota(perm.begin(), perm.end(), 0);
 
     std::sort(perm.begin(), perm.end(), 
-      [&_block_idx,&rolled_idx](int64_t val0, int64_t val1)
+      [&rolled_idx](int64_t val0, int64_t val1)
       {
-        return (_block_idx[val0] == _block_idx[val1]) 
-                ? (rolled_idx[val0] < rolled_idx[val1])
-                : (_block_idx[0][val0] < _block_idx[0][val1]);
+        return (rolled_idx[val0] < rolled_idx[val1]);
       });
 
     std::vector<int64_t> sorted_rolled_idx(rolled_idx.size());
@@ -220,14 +236,13 @@ class Tensor
     {
       for (int64_t islice = 0; islice < nb_slices_row[irow]; ++islice)
       {
-        std::array<int64_t,N-1> indices = {};
-        Utils::unroll_index(m_sparse_info.strides, m_sparse_info.slice_idx[iblk], indices);
-        
-        int blk_size = m_block_sizes[0][irow];
-        
-        for (int idim = 1; idim < N; ++idim)
+        std::array<int64_t,N> indices = {};
+        Utils::unroll_index(m_block_strides, m_sparse_info.slice_idx[iblk], indices);
+
+        int blk_size = 1;  
+        for (int idim = 0; idim < N; ++idim)
         {
-          blk_size *= m_block_sizes[idim][indices[idim-1]];
+          blk_size *= m_block_sizes[idim][indices[idim]];
         }
 
         m_sparse_info.slice_offset[iblk] = offset;
@@ -239,6 +254,8 @@ class Tensor
 
     // count number of total elements
     m_nb_nze_local = std::accumulate(nb_elements_row.begin(), nb_elements_row.end(), 0);
+
+    m_nb_nzblocks_local = nb_blocks;
 
     // allocate full space and set to zero
     m_p_data.reset(m_pool.allocate<T>(m_nb_nze_local), get_pool_deleter<T>());
@@ -272,13 +289,6 @@ class Tensor
     for (auto offset : m_sparse_info.row_idx)
     {
       printf("%ld ", offset);
-    }
-
-    printf("\nStrides:\n");
-
-    for (auto s : m_sparse_info.strides)
-    {
-      printf("%ld ", s);
     }
 
     printf("\nIndices:\n");
@@ -321,6 +331,254 @@ class Tensor
     return 0.0;
   }
 
+  int64_t get_nb_nzblocks_local()
+  {
+    return m_nb_nzblocks_local;
+  }
+
+  BlockSpan<T,N> get_local_block(int64_t _idx)
+  {
+    std::array<int,N> indices;
+    Utils::unroll_index(m_block_strides, _idx, indices);
+
+    std::array<int,N> sizes;
+    for (int i = 0; i < N; ++i)
+    {
+      sizes[i] = m_block_sizes[i][indices[i]];
+    }
+
+    T* p_data = m_p_data + m_sparse_info.slice_offset[_idx];
+
+    return BlockSpan<T,N>(p_data, sizes);
+  }
+
+#if 1
+  template <class ValueType, class Pointer, class Reference>
+  class BlockIteratorDetail
+  {
+   public:
+
+    using iterator_category = std::random_access_iterator_tag;
+    using difference_type = int64_t;
+    using value_type = ValueType;
+    using pointer = Pointer;  
+    using reference = Reference;
+
+    BlockIteratorDetail(const Tensor<T,N>& _tensor, int64_t _idx)
+      : m_tensor(_tensor)
+      , m_idx(_idx)
+      , m_block_span()
+    {
+      update_block();
+    }
+
+    BlockIteratorDetail(const BlockIteratorDetail& _iter) = default;
+
+    BlockIteratorDetail(BlockIteratorDetail&& _iter) = default;
+
+    BlockIteratorDetail& operator=(const BlockIteratorDetail& _iter) = default;
+
+    BlockIteratorDetail& operator=(BlockIteratorDetail&& _iter) = default;
+
+    ~BlockIteratorDetail() {}
+
+    std::array<int,N> get_indices() const 
+    { 
+      std::array<int,N> out;
+      Utils::unroll_index(m_tensor.m_block_strides, m_idx, out);
+      return out;
+    }
+
+    reference operator*()
+    {
+      return m_block_span;
+    }
+
+    pointer operator->()
+    {
+      return &m_block_span;
+    }
+
+    BlockIteratorDetail& operator++() 
+    { 
+      m_idx++; 
+      update_block();
+      return *this;
+    }
+    
+    BlockIteratorDetail operator++(int)
+    {
+      BlockIteratorDetail tmp_iter(*this);
+      m_idx++;
+      update_block();
+      return tmp_iter;
+    }
+    
+    BlockIteratorDetail& operator+=(difference_type _dt)
+    {
+      m_idx += _dt;
+      update_block();
+      return *this;
+    }
+    
+    BlockIteratorDetail operator+(difference_type _dt) const
+    {
+      BlockIteratorDetail tmp_iter(*this);
+      tmp_iter += _dt;
+      tmp_iter.update_block();
+      return tmp_iter;
+    }
+
+    BlockIteratorDetail& operator--() 
+    { 
+      m_idx--; 
+      update_block();
+      return *this;
+    }
+    
+    BlockIteratorDetail operator--(int)
+    {
+      BlockIteratorDetail tmp_iter(*this);
+      m_idx--;
+      update_block();
+      return tmp_iter;
+    }
+    
+    BlockIteratorDetail& operator-=(difference_type _dt)
+    {
+      m_idx -= _dt;
+      update_block();
+      return *this;
+    }
+    
+    BlockIteratorDetail operator-(difference_type _dt) const
+    {
+      BlockIteratorDetail tmp_iter(*this);
+      tmp_iter -= _dt;
+      tmp_iter.update_block();
+      return tmp_iter;
+    }
+    
+    difference_type operator-(const BlockIteratorDetail& _iter) const
+    {
+      return m_idx - _iter.m_idx;
+    }
+
+    bool operator<(const BlockIteratorDetail& _iter) const 
+    {
+      return m_idx < _iter.m_idx;
+    }
+
+    bool operator>(const BlockIteratorDetail& _iter) const 
+    {
+      return m_idx > _iter.m_idx;
+    }
+
+    bool operator<=(const BlockIteratorDetail& _iter) const 
+    {
+      return m_idx <= _iter.m_idx;
+    }
+
+    bool operator>=(const BlockIteratorDetail& _iter) const 
+    {
+      return m_idx >= _iter.m_idx;
+    }
+
+    bool operator==(const BlockIteratorDetail& _iter) const 
+    {
+      return m_idx == _iter.m_idx;
+    }
+
+    bool operator!=(const BlockIteratorDetail& _iter) const 
+    {
+      return m_idx != _iter.m_idx;
+    }
+
+    reference operator[](difference_type _dt)
+    {
+      return *(*this + _dt);
+    }
+
+   private:
+
+    void update_block()
+    {
+      std::array<int,N> indices;
+      Utils::unroll_index(m_tensor.m_block_strides, m_idx, indices);
+
+      std::array<int,N> sizes;
+      for (int i = 0; i < N; ++i)
+      {
+        sizes[i] = m_tensor.m_block_sizes[i][indices[i]];
+      }
+
+      int64_t offset = m_tensor.m_sparse_info.slice_offset[m_idx];
+      T* p_data = m_tensor.m_p_data.get() + offset;
+
+      m_block_span = BlockSpan<T,N>(p_data, sizes);
+    }
+
+    const Tensor<T,N>& m_tensor;
+
+    difference_type m_idx;
+
+    BlockSpan<T,N> m_block_span;
+
+  };
+
+  using BlockIterator = BlockIteratorDetail<Block<T,N>,BlockSpan<T,N>*,BlockSpan<T,N>&>;
+
+  using ConstBlockIterator = BlockIteratorDetail<const Block<T,N>,const BlockSpan<T,N>*,
+                                                 const BlockSpan<T,N>&>;
+
+  BlockIterator begin()
+  {
+    return BlockIterator(*this,0);
+  }
+
+  BlockIterator end()
+  {
+    return BlockIterator(*this,m_nb_nzblocks_local);
+  }
+
+  ConstBlockIterator cbegin() const
+  {
+    return ConstBlockIterator(*this,0);
+  }
+
+  ConstBlockIterator cend() const
+  {
+    return ConstBlockIterator(*this,m_nb_nzblocks_local);
+  }
+
+#endif
+
+  void print_blocks()
+  {
+    for (ConstBlockIterator iter = cbegin(); iter < cend(); ++iter)
+    {
+      auto indices = iter.get_indices();
+ 
+      printf("[ ");
+      for (int i = 0; i < N; ++i)
+      {
+        printf("%d ", indices[i]);
+      }
+      printf("]: ");
+
+      printf("( ");
+      for (auto val : *iter)
+      {
+        printf("%f ", val);
+      }
+      printf(")\n");
+    }
+
+
+
+
+  }
+
  private: 
 
   const Context m_ctx;
@@ -343,7 +601,6 @@ class Tensor
     Span<int64_t> row_idx;
     Span<int64_t> slice_idx;
     Span<int64_t> slice_offset;
-    std::array<int64_t,N-1> strides;
   };
   
   SparseInfo m_sparse_info;
@@ -375,7 +632,7 @@ class BlockView
 {
  public:
 
-  class BlockIterator 
+  class BlockIteratorDetail 
   {
     public:
       using iterator_category = std::random_access_iterator_tag;
@@ -384,7 +641,7 @@ class BlockView
       using pointer           = BlockSpan<T,N>*;  // or also value_type*
       using reference         = BlockSpan<T,N>&;  // or also value_type&
 
-      BlockIterator(Tensor<T,N>& _tensor, std::size_t _idx)
+      BlockIteratorDetail(Tensor<T,N>& _tensor, std::size_t _idx)
         : m_tensor(_tensor)
         , m_block_idx(_idx)
         , m_indices()

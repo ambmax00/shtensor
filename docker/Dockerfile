@@ -14,6 +14,8 @@ RUN set -ex ; \
         git \
         openmpi-bin \
         libopenmpi-dev \
+        python3 \
+        python3-dev \
         python3-pip \
         unzip \
         rsync \
