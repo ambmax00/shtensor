@@ -12,5 +12,8 @@ add_compile_options(-Wall -Wextra -pedantic)
 
 find_package(MPI REQUIRED)
 
+add_compile_definitions(SHTENSOR_LOGLEVEL=${LOGLEVEL})
+
+add_subdirectory(extern)
 add_subdirectory(src)
 add_subdirectory(test)

@@ -2,9 +2,12 @@
 #include "MemoryPool.h"
 #include "Tensor.h"
 #include "TestUtils.h"
+#include "Logger.h"
 
 int main(int argc, char** argv)
 {
+  auto logger = Shtensor::Log::create("test");
+
   MPI_Init(&argc,&argv);
 
   int result = 0;
@@ -17,7 +20,7 @@ int main(int argc, char** argv)
 
     Shtensor::Context ctx(MPI_COMM_WORLD);
 
-    printf("Hello from process %d on host %s\n", ctx.get_rank(), host);
+    Shtensor::Log::info(logger, "Hello from process {} on host {}", ctx.get_rank(), host);
 
     const std::size_t pool_memory = Shtensor::MemoryPool::MiB;
 
@@ -46,7 +49,6 @@ int main(int argc, char** argv)
 
     SHTENSOR_TEST_EQUAL(memManager.get_free_mem(), 
                         pool_memory-sizeof(Shtensor::MemoryPool::Chunk), result);
-
   }
 
   MPI_Finalize();

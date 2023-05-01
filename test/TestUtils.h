@@ -1,4 +1,5 @@
 #include <algorithm>
+#include "Logger.h"
 
 #define SHTENSOR_UNPAREN(expr) \
   expr
@@ -16,21 +17,13 @@
 #define SHTENSOR_TEST_EQUAL(a,b,result) \
   if (a != b)\
   {\
-    if constexpr (std::is_same<decltype(a), int>::value)\
-    {\
-      printf("Error: " #a " and " #b " not equal. Expected %d, got %d\n", a, b);\
-    }\
-    else\
-    {\
-      printf("Error: " #a " and " #b " not equal. Expected %ld, got %ld\n", a, b);\
-    }\
-    result+=1;\
+    Shtensor::Log::error(logger, "{} and {} are not equal. Expected {}, got {}", #a, #b, a, b);\
   }
 
 #define SHTENSOR_TEST_CONTAINER_EQUAL(A,B,result) \
   if (!std::equal(A.begin(), A.end(), B.begin())) \
   {\
-    printf("Error: " #A " and " #B " do not have equal elements\n");\
+    Shtensor::Log::error(logger, "{} and {} do not have equal elements", #A, #B);\
     result += 1;\
   }
 

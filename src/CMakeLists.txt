@@ -5,4 +5,4 @@ set(SOURCES
 
 add_library(shtensor ${SOURCES})
 
-target_link_libraries(shtensor MPI::MPI_CXX)
+target_link_libraries(shtensor MPI::MPI_CXX Shtensor_fmt)

@@ -5,6 +5,8 @@
 
 int main(int argc, char** argv)
 {
+  auto logger = Shtensor::Log::create("test");
+
   MPI_Init(&argc,&argv);
 
   int result = 0;
