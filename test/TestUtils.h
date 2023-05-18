@@ -17,13 +17,14 @@
 #define SHTENSOR_TEST_EQUAL(a,b,result) \
   if (a != b)\
   {\
-    Shtensor::Log::error(logger, "{} and {} are not equal. Expected {}, got {}", #a, #b, a, b);\
+    Shtensor::Log::print(logger, "{} and {} are not equal. Expected {}, got {}\n", #a, #b, a, b);\
+    result += 1;\
   }
 
 #define SHTENSOR_TEST_CONTAINER_EQUAL(A,B,result) \
   if (!std::equal(A.begin(), A.end(), B.begin())) \
   {\
-    Shtensor::Log::error(logger, "{} and {} do not have equal elements", #A, #B);\
+    Shtensor::Log::print(logger, "{} and {} do not have equal elements\n", #A, #B);\
     result += 1;\
   }
 

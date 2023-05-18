@@ -7,7 +7,7 @@
 #include <mpi.h>
 #include <stdio.h>
 
-#include "Context.h"
+#include "Logger.h"
 #include "Utils.h"
 
 namespace Shtensor 
@@ -16,10 +16,6 @@ namespace Shtensor
 class MemoryPool 
 {
  public: 
-
-  constexpr static inline int64_t KiB = 1024;
-  constexpr static inline int64_t MiB = 1024*1024;
-  constexpr static inline int64_t GiB = 1024*1024*1024;
 
   // padd chunk so we are guaranteed any type in the chunk is aligned
   struct alignas(alignof(std::max_align_t)) Chunk
@@ -36,15 +32,17 @@ class MemoryPool
     }
   };
 
-  MemoryPool(const Context& _ctx, int64_t _max_size);
+  MemoryPool();
+
+  MemoryPool(MPI_Comm _comm, int64_t _max_size);
 
   ~MemoryPool();
 
-  MemoryPool(const MemoryPool& _pool) = default;
+  MemoryPool(const MemoryPool& _pool) = delete;
 
   MemoryPool(MemoryPool&& _pool) = default;
 
-  MemoryPool& operator=(const MemoryPool& _pool) = default;
+  MemoryPool& operator=(const MemoryPool& _pool) = delete;
 
   MemoryPool& operator=(MemoryPool&& _pool) = default;
 
@@ -55,30 +53,54 @@ class MemoryPool
   void free(T* _p_array);
 
   template <typename T>
+  constexpr auto get_deleter()
+  {
+    return [this](T* _ptr) mutable { free(_ptr); };
+  }
+
+  template <typename T>
+  using deleter_function = 
+    typename std::result_of<decltype(&MemoryPool::get_deleter<T>)(MemoryPool)>::type;
+
+  template <typename T>
+  using unique_ptr = std::unique_ptr<T,deleter_function<T>>;
+
+  template <typename T> 
+  std::shared_ptr<T> allocate_shared(int64_t _size);
+
+  template <typename T>
+  unique_ptr<T> allocate_unique(int64_t);
+
+  template <typename T>
   int64_t get_offset(T* _p_array) const;
 
   template <typename T>
   int64_t get_size(T* _p_array) const;
 
-  uint8_t* get_data() const
-  {
-    return m_p_data;
-  }
+  template <typename T>
+  int64_t find_offset(const T* _ptr) const;
+
+  uint8_t* get_data() const { return m_p_data; }
 
   void print_info() const;
 
   void release();
 
-  int64_t get_free_mem() const
-  {
-    return m_free_mem;
-  }
+  int64_t get_free_mem() const { return m_free_mem; }
+
+  const MPI_Comm& get_comm() const { return m_comm; }
+
+  MPI_Win get_window() const { return *m_p_window; }
+
+  //MPI_Win get_shmem_window() const { return *m_p_shmem_window; }
+
+  //uint8_t* get_shmem_begin(int shmem_rank) const;
 
  private:
 
-  const Context m_ctx;
+  MPI_Comm m_comm;
 
-  const int64_t m_max_size;
+  int64_t m_max_size;
 
   uint8_t* m_p_data;
 
@@ -88,13 +110,13 @@ class MemoryPool
 
   std::shared_ptr<MPI_Win> m_p_window;
 
+  Log::Logger m_logger;
+
 };
 
 template <typename T>
 T* MemoryPool::allocate(int64_t _size)
 {
-  printf("Called allocate\n");
-
   // compute byte size and round to next multiple of max alignment
   const int64_t byte_size = _size*SSIZEOF(T);
   const int64_t alignment = alignof(std::max_align_t);
@@ -114,7 +136,7 @@ T* MemoryPool::allocate(int64_t _size)
 
   if (!chunk) 
   {
-    printf("ERROR: OUT OF MEMORY\n");
+    Log::error(m_logger, "Memorypool is out of memory");
     return nullptr;
   }
 
@@ -141,8 +163,6 @@ T* MemoryPool::allocate(int64_t _size)
 template <typename T>
 void MemoryPool::free(T* _p_array)
 {
-  printf("Called free\n");
-
   if (!_p_array) return;
 
   Chunk* p_chunk = reinterpret_cast<Chunk*>((uint8_t*)_p_array - SSIZEOF(Chunk));
@@ -168,6 +188,18 @@ void MemoryPool::free(T* _p_array)
   }
 }
 
+template <typename T> 
+std::shared_ptr<T> MemoryPool::allocate_shared(int64_t _size)
+{
+  return std::shared_ptr<T>(this->allocate<T>(_size),get_deleter<T>());
+}
+
+template <typename T>
+MemoryPool::unique_ptr<T> MemoryPool::allocate_unique(int64_t _size)
+{
+  return unique_ptr<T>(this->allocate<T>(_size),get_deleter<T>());
+}
+
 template <typename T>
 int64_t MemoryPool::get_offset(T* _p_array) const 
 {
@@ -187,6 +219,8 @@ int64_t MemoryPool::get_size(T* _p_array) const
 
   return p_chunk->data_size;
 }
+
+using SharedMemoryPool = std::shared_ptr<MemoryPool>;
 
 } // end namespace shtensor
 

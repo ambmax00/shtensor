@@ -12,7 +12,11 @@ add_compile_options(-Wall -Wextra -pedantic)
 
 find_package(MPI REQUIRED)
 
-add_compile_definitions(SHTENSOR_LOGLEVEL=${LOGLEVEL})
+if (${LOGLEVEL})
+  add_compile_definitions(SHTENSOR_LOGLEVEL=${LOGLEVEL})
+endif()
+
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 
 add_subdirectory(extern)
 add_subdirectory(src)

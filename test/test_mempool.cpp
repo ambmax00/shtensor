@@ -1,6 +1,5 @@
 #include "Context.h"
 #include "MemoryPool.h"
-#include "Tensor.h"
 #include "TestUtils.h"
 #include "Logger.h"
 
@@ -18,13 +17,13 @@ int main(int argc, char** argv)
 
     MPI_Get_processor_name(host, &len);
 
-    Shtensor::Context ctx(MPI_COMM_WORLD);
+    const int64_t pool_memory = Shtensor::MiB;
+
+    Shtensor::Context ctx(MPI_COMM_WORLD, pool_memory);
 
     Shtensor::Log::info(logger, "Hello from process {} on host {}", ctx.get_rank(), host);
 
-    const std::size_t pool_memory = Shtensor::MemoryPool::MiB;
-
-    Shtensor::MemoryPool memManager(ctx,pool_memory);
+    Shtensor::MemoryPool memManager(ctx.get_comm(), pool_memory);
 
     const std::size_t nb_elements = 16;
 

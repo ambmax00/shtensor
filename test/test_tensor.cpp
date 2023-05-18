@@ -12,7 +12,11 @@ int main(int argc, char** argv)
   int result = 0;
 
   {
-    Shtensor::Context ctx(MPI_COMM_WORLD);
+    const std::size_t pool_memory = Shtensor::MiB;
+
+    Shtensor::Context ctx(MPI_COMM_WORLD, pool_memory);
+
+    Shtensor::Log::print(logger, "Hello from process {}\n", ctx.get_rank());
 
     // =============== TEST INDEX CALCULATION ===================
 
@@ -32,10 +36,6 @@ int main(int argc, char** argv)
 
     // =============== TEST TENSOR CONSTRUCTION AND BLOCK ITERATION ==============
 
-    const std::size_t pool_memory = Shtensor::MemoryPool::MiB;
-
-    Shtensor::MemoryPool memManager(ctx,pool_memory);
-
     std::vector<int> dim0 = {4,5,3,4};
     std::vector<int> dim1 = {5,5,8,9,2};
     std::vector<int> dim2 = {5,6,3,7,7,9};
@@ -48,19 +48,19 @@ int main(int argc, char** argv)
 
     Shtensor::VArray<3> indices = {idx0, idx1, idx2};
 
-    auto tensor3 = Shtensor::Tensor<double,3>(ctx, block_sizes, memManager);
-    tensor3.reserve(indices);
-
-    SHTENSOR_TEST_EQUAL(tensor3.get_nb_nzblocks_local(), 9, result);
+    auto tensor3 = Shtensor::Tensor<double,3>(ctx, block_sizes);
+    tensor3.reserve_all();
 
     std::vector<int> dim3 = {4,3,2};
 
     Shtensor::VArray<4> block_sizes4 = {dim0,dim1,dim2,dim3};
 
-    auto tensor4 = Shtensor::Tensor<float,4>(ctx, block_sizes4, memManager);
+    auto tensor4 = Shtensor::Tensor<float,4>(ctx, block_sizes4);
     tensor4.reserve_all();
 
-    SHTENSOR_TEST_EQUAL(tensor4.get_nb_nzblocks_local(), 360, result);
+    SHTENSOR_DO_BY_RANK(ctx, (tensor4.print_info()));
+
+    SHTENSOR_TEST_EQUAL(tensor4.get_nb_nzblocks_global(), 360, result);
 
     for (auto iter = tensor4.begin(); iter != tensor4.end(); ++iter)
     {

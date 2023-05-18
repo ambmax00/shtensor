@@ -5,7 +5,7 @@ image_name="shtensor"
 nodes=1
 procs=1
 
-options=$(getopt -o '' --long nodes:,procs: -- "$@")
+options=$(getopt -o '' --long nodes:,procs:,image: -- "$@")
 eval set -- "$options"
 while true; do
   case $1 in
@@ -15,6 +15,10 @@ while true; do
       ;;
     --procs )
       procs=$2
+      shift 2
+      ;;
+    --image )
+      image_name=$2
       shift 2
       ;;
     -- )
@@ -76,14 +80,17 @@ for node in ${node_list[@]}; do
 done
 
 # generate machine file
-machine_file=$(mktemp)
+machine_file_openmpi=$(mktemp)
+machine_file_hydra=$(mktemp)
 
 for node in ${node_list[@]}; do
-  echo "$node slots=$procs" >> $machine_file
+  echo "$node slots=$procs" >> $machine_file_openmpi 
+  echo "$node:$procs" >> $machine_file_hydra
 done
 
 # prepare entry node
-docker cp $machine_file ${node_list[0]}:/etc/openmpi/openmpi-default-hostfile 
+docker cp $machine_file_openmpi ${node_list[0]}:/etc/openmpi/openmpi-default-hostfile 
+docker cp $machine_file_hydra ${node_list[0]}:/etc/hydra-hostfile
 
 # do stuff 
 docker exec -it --user dev ${node_list[0]} /bin/bash

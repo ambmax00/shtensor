@@ -185,14 +185,14 @@ static inline void loop_internal(const MultiArray& _array, const LoopIndexFuncti
 }
 
 template <int N, class MultiArray>
-static inline void loop(const MultiArray& _array, const LoopIndexFunction<N>& _func)
+static inline void loop_idx(const MultiArray& _array, const LoopIndexFunction<N>& _func)
 {
   std::array<int,N> idx = {};
   loop_internal<N,0,MultiArray>(_array,_func,idx);
 }
 
 template <class MultiArray>
-static inline int64_t varray_ssize(const MultiArray& _array)
+static inline int64_t varray_mult_ssize(const MultiArray& _array)
 {
   return std::accumulate(_array.begin(), _array.end(), 1l, 
     [](int64_t sum, const auto& sub_array){ return sum*ssize(sub_array); });

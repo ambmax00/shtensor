@@ -8,7 +8,7 @@
 
 #include "BlockSpan.h"
 #include "Context.h"
-#include "MemoryPool.h"
+#include "PGAS.h"
 
 namespace Shtensor 
 {
@@ -24,21 +24,17 @@ class Tensor
 
  public: 
   
-  Tensor(const Context& _ctx, const VArray<N>& _block_sizes, MemoryPool& _mempool) noexcept
+  Tensor(const Context& _ctx, const VArray<N>& _block_sizes) noexcept
     : m_ctx(_ctx) 
     , m_block_sizes(_block_sizes) 
-    , m_pool(_mempool)
     , m_grid_dims({})
     , m_p_cart(nullptr)
     , m_distributions({})
-    , m_p_data(nullptr)
+    , m_win_data()
     , m_sparse_info()
-    , m_nb_elements_local(0)
-    , m_nb_blocks_local(0)
-    , m_nb_elements_global(0)
-    , m_nb_blocks_global(0)
-    , m_nb_nze_local(0)
-    , m_nb_nzblocks_local(0)
+    , m_sinfo_local()
+    , m_sinfo_global()
+    , m_logger(Log::create("Tensor"))
   {
     // create cartesian grid
     std::fill(m_grid_dims.begin(), m_grid_dims.end(), 0);
@@ -61,12 +57,6 @@ class Tensor
                                                        m_grid_dims[i], m_block_sizes[i]);
     }
 
-    m_nb_blocks_global = std::accumulate(_block_sizes.begin(), _block_sizes.end(), 1.0,
-                          [](int64_t _prod, const auto& _sizes)
-                          {
-                            return _prod *= Utils::ssize(_sizes);
-                          });
-
     m_block_dims = Utils::varray_get_sizes(m_block_sizes);
 
     m_block_strides = Utils::compute_strides(m_block_dims);
@@ -83,8 +73,36 @@ class Tensor
       }
     }
 
-    // get total number of local blocks
-    
+    // total number of local blocks
+    m_sinfo_local.nb_blocks = Utils::varray_mult_ssize(m_block_idx_local);
+
+    // total number of local elements
+    Utils::loop_idx<N>(m_block_idx_local, 
+      [this](const std::array<int,N>& _idx)
+      {
+        int64_t blk_size = 1;
+        for (int idim = 0; idim < N; ++idim)
+        {
+          blk_size *= m_block_sizes[idim][m_block_idx_local[idim][_idx[idim]]];
+        } 
+        m_sinfo_local.nb_elements += blk_size;
+      });
+
+    m_sinfo_local.nb_nzblocks = 0;
+    m_sinfo_local.nb_nzblocks_sym = 0;
+    m_sinfo_local.nb_nze = 0;
+    m_sinfo_local.nb_nze_sym = 0;
+
+    MPI_Allreduce(&m_sinfo_local.nb_blocks, &m_sinfo_global.nb_blocks, 1, MPI_INT64_T, MPI_SUM, 
+                  m_ctx.get_comm());
+
+    MPI_Allreduce(&m_sinfo_local.nb_elements, &m_sinfo_global.nb_elements, 1, MPI_INT64_T, MPI_SUM, 
+                  m_ctx.get_comm());
+
+    m_sinfo_global.nb_nzblocks = 0;
+    m_sinfo_global.nb_nzblocks_sym = 0;
+    m_sinfo_global.nb_nze = 0;
+    m_sinfo_global.nb_nze_sym = 0; 
   }
 
   ~Tensor()
@@ -96,31 +114,22 @@ class Tensor
     return m_block_idx_local;
   }
 
-  std::size_t get_dim_size(int i)
-  {
-    //if (i < N || i >= N) return 0;
-
-    //return std::accumulate(m_block_sizes[i].begin(), m_block_sizes[i].end(), std::size_t(0));
-  }
-
   void reserve_all()
   {
-    const int64_t nb_blocks_local = Utils::varray_ssize(m_block_idx_local);
+    const int64_t nb_blocks_local = Utils::varray_mult_ssize(m_block_idx_local);
 
     VArray<N> indices;
     std::fill(indices.begin(), indices.end(), std::vector<int>(nb_blocks_local));
 
-    Utils::LoopIndexFunction<N> func = 
-    [&indices,this,iloop=0](const std::array<int,N>& loop_idx) mutable
-    {
-      for (int idim = 0; idim < N; ++idim)
+    Utils::loop_idx<N>(m_block_idx_local, 
+      [&indices,this,iloop=0](const std::array<int,N>& loop_idx) mutable
       {
-        indices[idim][iloop] = m_block_idx_local[idim][loop_idx[idim]];
-      }
-      iloop++;
-    };
-
-    Utils::loop<N>(m_block_idx_local, func);
+        for (int idim = 0; idim < N; ++idim)
+        {
+          indices[idim][iloop] = m_block_idx_local[idim][loop_idx[idim]];
+        }
+        iloop++;
+      });
 
     reserve(indices);
   
@@ -140,8 +149,12 @@ class Tensor
     }
 
     const int64_t nb_rows = Utils::ssize(m_block_sizes[0]);
-
     const int64_t nb_blocks = Utils::ssize(_block_idx[0]);
+
+    m_sinfo_local.nb_nzblocks = nb_blocks;
+
+    MPI_Allreduce(&m_sinfo_local.nb_nzblocks, &m_sinfo_local.nb_nzblocks_sym, 1, MPI_INT64_T, 
+                  MPI_MAX, m_ctx.get_comm());
 
     // count slices in each row and the number of total elements in that row
     std::vector<int64_t> nb_slices_row(nb_rows, 0);
@@ -162,31 +175,16 @@ class Tensor
       nb_elements_row[irow] += block_size;
     }
 
-    // reserve space for sparsity info
-    const int64_t sparse_data_size = (nb_rows+2*nb_blocks)*SSIZEOF(int64_t);
+    // count number of total elements
+    m_sinfo_local.nb_nze = std::accumulate(nb_elements_row.begin(), nb_elements_row.end(), 0);
 
-    m_sparse_info.p_raw.reset(m_pool.allocate<uint8_t>(sparse_data_size),
-                              get_pool_deleter<uint8_t>());
+    m_sparse_info.row_idx = shmem::allocate<int64_t>(m_ctx, nb_rows);
 
-    m_sparse_info.row_idx = Span<int64_t>(
-      reinterpret_cast<int64_t*>(m_sparse_info.p_raw.get()), nb_rows);
+    m_sparse_info.slice_idx = shmem::allocate<int64_t>(m_ctx, m_sinfo_local.nb_nzblocks_sym);
 
-    m_sparse_info.slice_idx = Span<int64_t>(m_sparse_info.row_idx.begin() + nb_rows, nb_blocks);
-
-    m_sparse_info.slice_offset = Span<int64_t>(
-      reinterpret_cast<int64_t*>(m_sparse_info.slice_idx.begin() + nb_blocks), nb_blocks);
+    m_sparse_info.slice_offset = shmem::allocate<int64_t>(m_ctx, m_sinfo_local.nb_nzblocks_sym);
   
     std::copy(nb_slices_row.begin(), nb_slices_row.end(), m_sparse_info.row_idx.begin());
-
-    // create rolled index array
-    //constexpr int nb_rolled_dims = N-1;
-    //m_sparse_info.strides[0] = 1;
-    
-    //for (int idim = 1; idim < nb_rolled_dims; ++idim)
-    //{
-    //  m_sparse_info.strides[idim] = m_sparse_info.strides[idim-1]
-    //                                *Utils::ssize(m_block_sizes[idim]);
-    //}
 
     std::vector<int64_t> rolled_idx(nb_blocks, 0);
 
@@ -252,88 +250,94 @@ class Tensor
       }
     }
 
-    // count number of total elements
-    m_nb_nze_local = std::accumulate(nb_elements_row.begin(), nb_elements_row.end(), 0);
-
-    m_nb_nzblocks_local = nb_blocks;
-
     // allocate full space and set to zero
-    m_p_data.reset(m_pool.allocate<T>(m_nb_nze_local), get_pool_deleter<T>());
-    std::fill(m_p_data.get(), m_p_data.get()+m_nb_nze_local, T());
+    MPI_Allreduce(&m_sinfo_local.nb_nze, &m_sinfo_local.nb_nze_sym, 1, MPI_INT64_T, MPI_MAX, 
+                  m_ctx.get_comm());
+
+    m_win_data = shmem::allocate<T>(m_ctx, m_sinfo_local.nb_nze_sym);
+
+    std::fill(m_win_data.begin(), m_win_data.end(), T());
+
+    // collect global info
+    MPI_Allreduce(&m_sinfo_local.nb_nzblocks, &m_sinfo_global.nb_nzblocks, 1, MPI_INT64_T, MPI_SUM, 
+                  m_ctx.get_comm());
+
+    MPI_Allreduce(&m_sinfo_local.nb_nze, &m_sinfo_global.nb_nze, 1, MPI_INT64_T, MPI_SUM, 
+                  m_ctx.get_comm());
+
+    m_sinfo_global.nb_nzblocks_sym = m_ctx.get_size() * m_sinfo_local.nb_nzblocks_sym;
+    m_sinfo_global.nb_nze_sym = m_ctx.get_size() * m_sinfo_local.nb_nze_sym;
     
   }
 
   
   void print_info()
   {
-    printf("Tensor Info one rank %d\n", m_ctx.get_rank());
+    Log::print(m_logger, "Tensor Info on rank {}\n", m_ctx.get_rank());
 
-    printf("Block sizes:\n");
+    Log::print(m_logger, "Number of local blocks: {}/{}\n", 
+               m_sinfo_local.nb_nzblocks, 
+               m_sinfo_local.nb_blocks);
+
+    Log::print(m_logger, "Number of local elements: {}/{}\n", 
+               m_sinfo_local.nb_nze,
+               m_sinfo_local.nb_elements);
+
+    Log::print(m_logger, "Number of global blocks: {}/{}\n", 
+               m_sinfo_global.nb_nzblocks, 
+               m_sinfo_global.nb_blocks);
+
+    Log::print(m_logger, "Number of local elements: {}/{}\n", 
+               m_sinfo_global.nb_nze,
+               m_sinfo_global.nb_elements);
+
+    Log::print(m_logger, "Block sizes:\n");
     for (int idim = 0; idim < N; ++idim)
     {
-      for (int iblk = 0l; iblk < Utils::ssize(m_block_sizes[idim]); ++iblk)
-      {
-        printf("%d ", m_block_sizes[idim][iblk]);
-      }
-      printf("\n");
+      Log::print(m_logger, "[{}]\n",  fmt::join(m_block_sizes[idim], ","));
     }
 
-    printf("\n");
-    printf("Sparsity Info:\n");
+    Log::print(m_logger, "\n");
+    Log::print(m_logger, "Sparsity Info:\n");
 
-    printf("Number of local nze: %ld\n", m_nb_nze_local);
-    printf("Occupation: %f\n", 0.f);
+    Log::print(m_logger, "Occupation: {}\n", get_occupation());
 
-    printf("Row offsets:\n");
+    Log::print(m_logger, "Row offsets:\n");
+    Log::print(m_logger, "[{}]\n", fmt::join(m_sparse_info.row_idx, ","));
+
+    Log::print(m_logger, "Indices:\n");
+    Log::print(m_logger, "[{}]\n", fmt::join(m_sparse_info.slice_idx, ","));
     
-    for (auto offset : m_sparse_info.row_idx)
-    {
-      printf("%ld ", offset);
-    }
+    Log::print(m_logger, "Offsets:\n");
+    Log::print(m_logger, "[{}]", fmt::join(m_sparse_info.slice_offset, ","));
 
-    printf("\nIndices:\n");
-
-    for (auto idx : m_sparse_info.slice_idx)
-    {
-      printf("%ld ", idx);
-    }
-
-    printf("\nOffsets:\n");
-
-    for (auto off : m_sparse_info.slice_offset)
-    {
-      printf("%ld ", off);
-    }
-
-    printf("\n\n");
+    Log::print(m_logger, "\n");
 
   }
-  
-  template <typename D>
-  std::function<void(D*)> get_pool_deleter()
-  {
-    return [memPool=m_pool](D* _ptr) mutable { memPool.free(_ptr); };
-  }
 
-  const Span<int64_t>& get_row_idx() const
+  const Window<int64_t>& get_row_idx() const
   {
     return m_sparse_info.row_idx;
   }
 
-  const Span<int64_t>& get_slice_idx() const 
+  const Window<int64_t>& get_slice_idx() const 
   {
     return m_sparse_info.slice_idx;
   }
 
   double get_occupation()
   {
-    // NYI
-    return 0.0;
+    return double(m_sinfo_global.nb_nzblocks)/double(m_sinfo_global.nb_blocks);
   }
 
   int64_t get_nb_nzblocks_local()
   {
-    return m_nb_nzblocks_local;
+    return m_sinfo_local.nb_nzblocks;
+  }
+
+  int64_t get_nb_nzblocks_global()
+  {
+    return m_sinfo_global.nb_nzblocks;
   }
 
   BlockSpan<T,N> get_local_block(int64_t _idx)
@@ -347,9 +351,32 @@ class Tensor
       sizes[i] = m_block_sizes[i][indices[i]];
     }
 
-    T* p_data = m_p_data + m_sparse_info.slice_offset[_idx];
+    T* p_data = m_win_data + m_sparse_info.slice_offset[_idx];
 
     return BlockSpan<T,N>(p_data, sizes);
+  }
+
+  std::array<int,N> get_coords() 
+  {
+    return m_coords;
+  }
+
+  std::array<int,N> get_coords_block(const std::array<int,N>& _idx)
+  {
+    std::array<int,N> coords;
+    for (int i = 0; i < N; ++i)
+    {
+      coords[i] = m_distributions[i][_idx[i]];
+    }
+    return coords;
+  }
+
+  int get_rank_block(const std::array<int,N>& _idx)
+  {
+    auto coords = get_coords_block(_idx);
+    int rank = -1;
+    MPI_Cart_rank(*m_p_cart.get(), coords.data(), &rank);
+    return rank;
   }
 
 #if 1
@@ -513,7 +540,7 @@ class Tensor
       }
 
       int64_t offset = m_tensor.m_sparse_info.slice_offset[m_idx];
-      T* p_data = m_tensor.m_p_data.get() + offset;
+      T* p_data = const_cast<T*>(m_tensor.m_win_data.data()) + offset;
 
       m_block_span = BlockSpan<T,N>(p_data, sizes);
     }
@@ -538,7 +565,7 @@ class Tensor
 
   BlockIterator end()
   {
-    return BlockIterator(*this,m_nb_nzblocks_local);
+    return BlockIterator(*this,m_sinfo_local.nb_nzblocks);
   }
 
   ConstBlockIterator cbegin() const
@@ -548,7 +575,7 @@ class Tensor
 
   ConstBlockIterator cend() const
   {
-    return ConstBlockIterator(*this,m_nb_nzblocks_local);
+    return ConstBlockIterator(*this,m_sinfo_local.nb_nzblocks);
   }
 
 #endif
@@ -558,34 +585,15 @@ class Tensor
     for (ConstBlockIterator iter = cbegin(); iter < cend(); ++iter)
     {
       auto indices = iter.get_indices();
- 
-      printf("[ ");
-      for (int i = 0; i < N; ++i)
-      {
-        printf("%d ", indices[i]);
-      }
-      printf("]: ");
-
-      printf("( ");
-      for (auto val : *iter)
-      {
-        printf("%f ", val);
-      }
-      printf(")\n");
+      Log::print(m_logger, "({})[{}]\n", fmt::join(indices, ","), fmt::join(*iter, ","));
     }
-
-
-
-
   }
 
  private: 
 
-  const Context m_ctx;
+  Context m_ctx;
 
-  const VArray<N> m_block_sizes;
-
-  MemoryPool m_pool;
+  VArray<N> m_block_sizes;
 
   std::array<int,N> m_grid_dims;
 
@@ -593,29 +601,30 @@ class Tensor
 
   VArray<N> m_distributions;
 
-  std::shared_ptr<T> m_p_data;
+  Window<T> m_win_data;
 
   struct SparseInfo
   {
-    std::shared_ptr<uint8_t> p_raw;
-    Span<int64_t> row_idx;
-    Span<int64_t> slice_idx;
-    Span<int64_t> slice_offset;
+    Window<int64_t> row_idx;
+    Window<int64_t> slice_idx;
+    Window<int64_t> slice_offset;
   };
   
   SparseInfo m_sparse_info;
 
-  int64_t m_nb_elements_local;
+  struct SizeInfo 
+  {
+    int64_t nb_elements;
+    int64_t nb_blocks;
+    int64_t nb_nze;
+    int64_t nb_nze_sym;
+    int64_t nb_nzblocks;
+    int64_t nb_nzblocks_sym;
+  };
 
-  int64_t m_nb_blocks_local;
+  SizeInfo m_sinfo_local;
 
-  int64_t m_nb_elements_global;
-
-  int64_t m_nb_blocks_global;
-
-  int64_t m_nb_nze_local;
-
-  int64_t m_nb_nzblocks_local;
+  SizeInfo m_sinfo_global;
 
   std::array<int64_t,N> m_block_dims;
 
@@ -624,6 +633,8 @@ class Tensor
   std::array<int,N> m_coords;
 
   VArray<N> m_block_idx_local;
+
+  Log::Logger m_logger;
 
 };
 
@@ -661,6 +672,9 @@ class BlockView
   Tensor<N,T> m_tensor;
 
 };*/
+
+template <typename T, int N>
+using SharedTensor = std::shared_ptr<Tensor<T,N>>;
 
 }
 

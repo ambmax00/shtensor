@@ -3,6 +3,10 @@
 
 #include <memory>
 #include <mpi.h>
+#include <vector>
+
+#include "Logger.h"
+#include "MemoryPool.h"
 
 namespace Shtensor 
 {
@@ -23,7 +27,7 @@ class Context
     }
   };
 
-  Context(MPI_Comm _comm, bool _attach = false);
+  Context(MPI_Comm _comm, int64_t _vmsize, bool _attach = false);
 
   Context(const Context& _ctx) = default;
 
@@ -39,6 +43,8 @@ class Context
 
   int get_size() const { return m_size; }
 
+  const SharedMemoryPool& get_mempool() const { return m_p_mempool; }
+
   MPI_Comm get_comm() const { return *m_p_comm; }
 
   int get_shmem_rank() const { return m_shmem_rank; }
@@ -46,6 +52,14 @@ class Context
   int get_shmem_size() const { return m_shmem_size; }
 
   MPI_Comm get_shmem_comm() const { return *m_p_shmem_comm; }
+
+  int global_to_shmem(int _rank) const;
+
+  int get_left_neighbour() const;
+
+  int get_right_neighbour() const;
+
+  std::string get_host_name() const;
 
  private:
 
@@ -60,6 +74,10 @@ class Context
   int m_shmem_rank;
 
   int m_shmem_size;
+
+  std::vector<int> m_shmem_group_ranks;
+
+  SharedMemoryPool m_p_mempool;
 
 };
 

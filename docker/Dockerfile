@@ -12,6 +12,8 @@ RUN set -ex ; \
         g++ \
         pkg-config \
         git \
+	mpich \
+        libmpich-dev \
         openmpi-bin \
         libopenmpi-dev \
         python3 \
@@ -27,6 +29,21 @@ RUN set -ex ; \
         wget \
         xterm
 
+# install OneAPI HPC kit
+# repository to install Intel(R) oneAPI Libraries
+#RUN curl -fsSL https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS-2023.PUB | apt-key add -
+#RUN echo "deb [trusted=yes] https://apt.repos.intel.com/oneapi all main " > /etc/apt/sources.list.d/oneAPI.list
+#RUN apt-get update && \
+#  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+#    curl ca-certificates gpg-agent software-properties-common && \
+#  rm -rf /var/lib/apt/lists/*
+#RUN apt-get update && \
+#  apt-get install -y --no-install-recommends \
+#  ca-certificates build-essential pkg-config gnupg libarchive13 \
+#  intel-basekit-getting-started intel-oneapi-common-licensing intel-oneapi-common-vars \
+#  intel-oneapi-mkl-devel intel-hpckit-getting-started && \
+#  rm -rf /var/lib/apt/lists/*
+
 # install libxsmm
 #ARG libxsmm_version=1.17
 
@@ -39,6 +56,7 @@ RUN set -ex ; \
 
 ENV OMPI_ALLOW_RUN_AS_ROOT=1 
 ENV OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 
+ENV HYDRA_HOST_FILE=/etc/hydra-hostfile
 
 RUN useradd -ms /bin/bash dev 
 RUN echo "dev:pass" | chpasswd
