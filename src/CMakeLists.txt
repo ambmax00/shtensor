@@ -1,7 +1,8 @@
 set(SOURCES 
     Context.cpp 
     MemoryPool.cpp
-    Tensor.cpp) 
+    Tensor.cpp
+    ThreadPool.cpp) 
 
 add_library(shtensor ${SOURCES})
 

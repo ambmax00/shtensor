@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <limits>
 
+#include <mpi.h>
+
 namespace Shtensor 
 {
 

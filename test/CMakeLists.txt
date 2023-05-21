@@ -1,15 +1,16 @@
-add_executable(test_mempool test_mempool.cpp)
-add_executable(test_tensor test_tensor.cpp)
-add_executable(test_window test_window.cpp)
-
 include_directories(../src)
 
-target_link_libraries(test_mempool shtensor)
-target_link_libraries(test_tensor shtensor)
-target_link_libraries(test_window shtensor)
+function(register_test name)
+
+  add_executable(test_${name} test_${name}.cpp)
+  target_link_libraries(test_${name} shtensor)
+  add_test(Test_${name} ${MPIEXEC_EXECUTABLE} ${CMAKE_CURRENT_BINARY_DIR}/test_${name})
+
+endfunction()
 
 message(STATUS "MPI executable: ${MPIEXEC_EXECUTABLE}")
 
-add_test(Test_mempool ${MPIEXEC_EXECUTABLE} ${CMAKE_CURRENT_BINARY_DIR}/test_mempool)
-add_test(Test_tensor ${MPIEXEC_EXECUTABLE} ${CMAKE_CURRENT_BINARY_DIR}/test_tensor)
-add_test(Test_window ${MPIEXEC_EXECUTABLE} ${CMAKE_CURRENT_BINARY_DIR}/test_window)
+register_test(mempool)
+register_test(tensor)
+register_test(window)
+register_test(threadpool)

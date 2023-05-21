@@ -207,6 +207,21 @@ static inline auto varray_get_sizes(const MultiArray& _array)
   return out;
 }
 
+template <class Integer>
+static inline void divide_equally(Integer _nb_elements, int _bin, int _nb_bins, Integer& _bin_start, Integer& _bin_end)
+{
+  // divide such that bin 0 takes the rest
+  Integer rest = _nb_elements % _nb_bins;
+  Integer bin_size_lower = _nb_elements / _nb_bins;
+  Integer bin_offset = (_bin == 0) ? 0 : rest;
+
+  Integer bin_size = (_bin == 0) ? bin_size_lower + rest : bin_size_lower; 
+  _bin_start = _bin*bin_size_lower + bin_offset;
+  _bin_end = _bin_start + bin_size;
+
+  return;
+}
+
 } // end namespace Utils 
 
 } // end namespace Shtensor
