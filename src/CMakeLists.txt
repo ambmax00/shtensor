@@ -2,6 +2,7 @@ set(SOURCES
     Context.cpp 
     MemoryPool.cpp
     Tensor.cpp
+    ThreadBarrier.cpp
     ThreadPool.cpp) 
 
 add_library(shtensor ${SOURCES})

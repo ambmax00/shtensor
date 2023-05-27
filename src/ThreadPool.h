@@ -2,13 +2,12 @@
 #define SHTENSOR_THREADPOOL_H
 
 #include <atomic>
-#include <condition_variable>
 #include <functional>
-#include <mutex>
 #include <thread>
 #include <vector>
 
 #include "Logger.h"
+#include "ThreadBarrier.h"
 
 namespace Shtensor
 {
@@ -26,7 +25,7 @@ class ThreadPool
 
   ~ThreadPool();
 
-  void run(LoopFunction&& _function, int64_t _start, int64_t _end, int64_t _step = 1);
+  void run(int64_t _start, int64_t _end, int64_t _step, LoopFunction&& _function);
  
  private:
 
@@ -36,11 +35,21 @@ class ThreadPool
 
   std::vector<std::thread> m_threads;
 
-  std::mutex m_run_mutex;
+  std::mutex m_m2t_mutex;
 
-  std::condition_variable m_run_condition;
+  std::mutex m_t2m_mutex;
 
-  LoopFunction m_loopFunction;
+  std::mutex m_t2t_mutex;
+
+  std::condition_variable m_m2t_condition;
+
+  std::condition_variable m_t2m_condition;
+
+  std::condition_variable m_t2t_condition;
+
+  int m_t2m_idx;
+
+  int m_t2t_idx;
 
   std::vector<AtomicPtr<int64_t>> m_loop_p_index;
 
@@ -48,15 +57,13 @@ class ThreadPool
 
   int64_t m_loop_step;
 
-  std::mutex m_thread_done_mutex;
-
-  std::condition_variable m_thread_done_condition;
-
-  int m_thread_done_idx;
-
   LoopFunction m_loop_function;
 
-  volatile bool m_stop;
+  std::atomic<int> m_tasks_done_idx;
+
+  bool m_stop;
+
+  ThreadBarrier m_thread_barrier;
 
   Log::Logger m_logger;
 
