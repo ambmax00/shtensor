@@ -80,6 +80,12 @@ class Span
 
 };
 
+enum class BlockNorm
+{
+  FROBENIUS = 0,
+  MAXABS = 1
+};
+
 template <typename T, int N>
 class BlockSpan : public Span<T>
 {
@@ -125,6 +131,32 @@ class BlockSpan : public Span<T>
   const T& operator()(Idx... _idx) const 
   {
     return this->m_p_data[Utils::roll_indices(m_strides, std::forward<Idx>(_idx)...)];
+  }
+
+  T get_norm(BlockNorm _norm) const 
+  {
+    switch (_norm)
+    {
+      case BlockNorm::FROBENIUS:
+      {
+        return std::sqrt(
+          std::accumulate(this->begin(), this->end(), 0, 
+            [](T sum, T val) { return (sum + std::pow(val,2)); })
+          );
+      }
+      case BlockNorm::MAXABS:
+      {
+        return std::abs(
+          *std::max_element(this->begin(), this->end(), 
+            [](T a, T b) { return std::abs(a) < std::abs(b); })
+          );
+      }
+      default:
+      {
+        return 0;
+      }
+    }
+    
   }
 
  private: 

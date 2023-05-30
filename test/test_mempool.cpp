@@ -12,42 +12,112 @@ int main(int argc, char** argv)
   int result = 0;
 
   {
-    char host[MPI_MAX_PROCESSOR_NAME];
-    int len = -1;
-
-    MPI_Get_processor_name(host, &len);
-
-    const int64_t pool_memory = Shtensor::MiB;
+    const int64_t chunk_ssize = SSIZEOF(Shtensor::MemoryPool::Chunk);
+    const int64_t pool_memory = 1024*SSIZEOF(double)+chunk_ssize;
 
     Shtensor::Context ctx(MPI_COMM_WORLD, pool_memory);
 
-    Shtensor::Log::info(logger, "Hello from process {} on host {}", ctx.get_rank(), host);
+    Shtensor::Log::info(logger, "Hello from process {} on host {}", ctx.get_rank(), 
+                        ctx.get_host_name());
 
-    Shtensor::MemoryPool memManager(ctx.get_comm(), pool_memory);
+    Shtensor::MemoryPool mem_pool(ctx.get_comm(), pool_memory);
 
-    const std::size_t nb_elements = 16;
+    if (ctx.get_rank() == 0)
+    {
+      mem_pool.print_info();
+    }
 
-    float* p_array = memManager.allocate<float>(nb_elements);
+    const int64_t expected_free_mem_full = pool_memory - chunk_ssize;
 
-    SHTENSOR_DO_BY_RANK(ctx, (memManager.print_info()));
+    SHTENSOR_TEST_EQUAL(expected_free_mem_full, mem_pool.get_free_mem(), result);
 
-    const std::size_t comp_mem = pool_memory - nb_elements*sizeof(float) 
-                                 - 2*sizeof(Shtensor::MemoryPool::Chunk);
+    // test allocate and free
 
-    SHTENSOR_TEST_EQUAL(memManager.get_free_mem(), comp_mem, result);
+    double* p_darray_0 = mem_pool.allocate<double>(100);
+    float* p_farray_1 = mem_pool.allocate<float>(100);
 
-    double* p_array_d = memManager.allocate<double>(3*nb_elements);
+    const int64_t expected_free_mem_0 = pool_memory
+                                        - 100*SSIZEOF(double) - 100*SSIZEOF(float)
+                                        - 3*chunk_ssize;
 
-    memManager.free(p_array);
+    if (ctx.get_rank() == 0)
+    {
+      mem_pool.print_info();
+    }
 
-    SHTENSOR_DO_BY_RANK(ctx, (memManager.print_info()));
+    SHTENSOR_TEST_EQUAL(expected_free_mem_0, mem_pool.get_free_mem(), result);
 
-    memManager.free(p_array_d);
+    mem_pool.free(p_darray_0);
 
-    SHTENSOR_DO_BY_RANK(ctx, (memManager.print_info()));
+    const int64_t expected_free_mem_1 = pool_memory - 100*SSIZEOF(float)
+                                        - 3*chunk_ssize;
 
-    SHTENSOR_TEST_EQUAL(memManager.get_free_mem(), 
-                        pool_memory-sizeof(Shtensor::MemoryPool::Chunk), result);
+    if (ctx.get_rank() == 0)
+    {
+      mem_pool.print_info();
+    }
+
+    SHTENSOR_TEST_EQUAL(expected_free_mem_1, mem_pool.get_free_mem(), result);
+
+    double* p_darray_1 = mem_pool.allocate<double>(100);
+
+    // Memory pool should pick first free block again
+    SHTENSOR_TEST_EQUAL((int64_t)p_darray_0, (int64_t)p_darray_1, result);
+
+    mem_pool.free(p_darray_1);
+
+    mem_pool.free(p_farray_1);
+
+    if (ctx.get_rank() == 0)
+    {
+      mem_pool.print_info();
+    }
+
+    // Memory pool should return to initial size
+    const int64_t expected_free_mem_2 = pool_memory - chunk_ssize;
+
+    SHTENSOR_TEST_EQUAL(expected_free_mem_2, mem_pool.get_free_mem(), result);
+
+    uint8_t* p_uarray_0 = mem_pool.allocate<uint8_t>(pool_memory-chunk_ssize);
+
+    p_uarray_0 = mem_pool.reallocate(p_uarray_0, 256);
+
+    if (ctx.get_rank() == 0)
+    {
+      mem_pool.print_info();
+    }
+
+    const int64_t expected_free_mem_3 = pool_memory - 256 - 2*chunk_ssize;
+
+    SHTENSOR_TEST_EQUAL(expected_free_mem_3, mem_pool.get_free_mem(), result);
+
+    if (ctx.get_rank() == 0)
+    {
+      mem_pool.print_info();
+    }
+
+    p_uarray_0 = mem_pool.reallocate(p_uarray_0, 512);
+
+    const int64_t expected_free_mem_4 = pool_memory - 512 - 2*chunk_ssize;
+
+    SHTENSOR_TEST_EQUAL(expected_free_mem_4, mem_pool.get_free_mem(), result);
+
+    if (ctx.get_rank() == 0)
+    {
+      mem_pool.print_info();
+    }
+
+    p_uarray_0 = mem_pool.reallocate(p_uarray_0, pool_memory-chunk_ssize);
+
+    const int64_t expected_free_mem_5 = 0;
+
+    SHTENSOR_TEST_EQUAL(expected_free_mem_5, mem_pool.get_free_mem(), result);
+
+    if (ctx.get_rank() == 0)
+    {
+      mem_pool.print_info();
+    }
+
   }
 
   MPI_Finalize();

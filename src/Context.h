@@ -53,6 +53,8 @@ class Context
 
   MPI_Comm get_shmem_comm() const { return *m_p_shmem_comm; }
 
+  int get_nb_threads() const { return m_nb_threads; }
+
   int global_to_shmem(int _rank) const;
 
   int get_left_neighbour() const;
@@ -78,6 +80,8 @@ class Context
   std::vector<int> m_shmem_group_ranks;
 
   SharedMemoryPool m_p_mempool;
+
+  int m_nb_threads;
 
 };
 

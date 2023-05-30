@@ -8,7 +8,9 @@
 
 #include "BlockSpan.h"
 #include "Context.h"
+#include "MemoryPool.h"
 #include "PGAS.h"
+#include "ThreadPool.h"
 
 namespace Shtensor 
 {
@@ -379,6 +381,20 @@ class Tensor
     return rank;
   }
 
+  int64_t get_max_block_size()
+  {
+    int64_t size = 1;
+    for (int i = 0; i < N; ++i)
+    {
+      size *= std::max_element(m_block_sizes[i].begin(), m_block_sizes[i].end());
+    }
+    return size;
+  }
+
+  void filter(T _eps, BlockNorm _norm, bool _compress = true);
+
+  void compress();
+
 #if 1
   template <class ValueType, class Pointer, class Reference>
   class BlockIteratorDetail
@@ -530,6 +546,12 @@ class Tensor
 
     void update_block()
     {
+      if (m_idx == -1) // deleted block
+      {
+        m_block_span = BlockSpan<T,N>(nullptr, std::array<int,N>{});
+        return;
+      }
+
       std::array<int,N> indices;
       Utils::unroll_index(m_tensor.m_block_strides, m_idx, indices);
 
@@ -675,6 +697,116 @@ class BlockView
 
 template <typename T, int N>
 using SharedTensor = std::shared_ptr<Tensor<T,N>>;
+
+template <typename T, int N>
+void Tensor<T,N>::filter(T _eps, BlockNorm _norm, bool _compress)
+{
+  {
+    ThreadPool tpool(m_ctx.get_nb_threads());
+
+    int64_t start = 0;
+    int64_t end = m_sinfo_local.nb_nzblocks;
+    int64_t step = 1;
+
+    auto loop_func = [this,_eps,_norm](int64_t _id)
+    {
+      BlockSpan<T,N> block = this->begin() + _id;
+      if (block.get_norm(_norm) < _eps) 
+      {
+        this->m_sparse_info.slice_idx[_id] = -1;
+      }
+    };
+
+    tpool.run(start,end,step,loop_func);
+  }
+
+  if (_compress)
+  {
+    compress();
+  }
+
+}
+
+template <typename T, int N>
+void Tensor<T,N>::compress()
+{
+  /*
+  // loop over blocks and compress
+  int prev_row = 0;
+  
+  bool prev_was_empty = false;
+
+  int64_t chunk_start = 0;
+  int64_t chunk_dest = 0;
+  int64_t chunk_size = 0;
+
+  int64_t nb_zero_blocks = 0;
+
+  int64_t nb_nze_new;
+  int64_t nb_nzblocks_new;
+
+  for (int64_t iblk = 0; iblk < m_sinfo_local.nb_nzblocks; ++iblk)
+  {
+    // get current row 
+    const int64_t blk_idx = m_sparse_info.slice_idx[iblk];
+
+    std::array<int,N> indices;
+    Utils::unroll_index(m_block_strides, blk_idx, indices);
+    const int row = indices[0];
+
+    // get block size
+    int blk_size = 0;
+    for (int i = 0; i < N; ++i)
+    {
+      blk_size *= m_block_sizes[i][indices[i]];
+    }
+
+    const int64_t blk_idx = m_sparse_info.slice_idx[iblk];
+    const int64_t blk_off = m_sparse_info.slice_offset[iblk];
+    const bool is_empty = (blk_idx == -1);
+
+    if (!is_empty)
+    {
+      // update sparse info
+      m_sparse_info.slice_idx[iblk-nb_zero_blocks] = blk_idx;
+      m_sparse_info.slice_offset[iblk-nb_zero_blocks] = nb_nze_new;
+      if (prev_row != row)
+      {
+        m_sparse_info.row_idx[row] = iblk-nb_zero_blocks;
+      }
+
+      chunk_start = (prev_was_empty) ? blk_off : chunk_start;
+      chunk_size += blk_size;
+
+      prev_was_empty = false;
+      nb_nze_new += blk_size;
+      nb_nzblocks_new += 1;
+
+    }
+
+    // move if necessary
+    const bool move = (is_empty && !prev_was_empty) || (iblk == m_sinfo_local.nb_nzblocks-1);
+    if (move)
+    {
+      std::memmove(m_win_data.data() + chunk_dest, m_win_data.data() + chunk_start, chunk_size);
+    }
+
+    if (is_empty)
+    {
+      if (!prev_was_empty)
+      {
+        // new destination for proceding chunk
+        chunk_dest = blk_off;
+        chunk_size = 0;
+      }
+      ++nb_zero_blocks;        
+    }
+
+    prev_row = row;
+
+  }*/
+
+}
 
 }
 

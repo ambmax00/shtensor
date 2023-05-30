@@ -1,6 +1,7 @@
 #include "Context.h"
 
 #include <algorithm>
+#include <thread>
 
 namespace Shtensor 
 {
@@ -14,6 +15,7 @@ Context::Context(MPI_Comm _comm, int64_t _vm_size, bool _attach)
   , m_shmem_size(0)
   , m_shmem_group_ranks(0)
   , m_p_mempool(nullptr)
+  , m_nb_threads(static_cast<int>(std::thread::hardware_concurrency()))
 {
   if (_attach)
   {

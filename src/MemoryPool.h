@@ -50,6 +50,9 @@ class MemoryPool
   [[nodiscard]] T* allocate(int64_t _size);
 
   template <typename T>
+  [[nodiscard]] T* reallocate(T* _ptr, int64_t _size);
+
+  template <typename T>
   void free(T* _p_array);
 
   template <typename T>
@@ -140,25 +143,174 @@ T* MemoryPool::allocate(int64_t _size)
     return nullptr;
   }
 
-  // create new free chunk
-  Chunk* new_chunk = reinterpret_cast<Chunk*>((uint8_t*)chunk+real_chunk_size);
-  new_chunk->prev = chunk;
-  new_chunk->next = chunk->next;
-  new_chunk->data_size = chunk->data_size-real_chunk_size;
-  new_chunk->free = true;
+  const int64_t mem_diff = chunk->data_size - real_data_size;
 
-  m_free_mem -= SSIZEOF(Chunk);
+  if (mem_diff <= SSIZEOF(Chunk))
+  { 
+    // splitting the chunk would result in a chunk that is too small, so just leave chunk as is
+    chunk->free = false;
+    chunk->data_size = real_data_size + mem_diff;
 
-  // update old chunk
-  chunk->free = false;
-  chunk->data_size = real_data_size;
-  chunk->next = new_chunk;
+    m_free_mem -= (real_data_size + mem_diff);
 
-  m_free_mem -= real_data_size;
+  }
+  else 
+  {
+    // Split this chunk into a new empty and occupied chunk
+
+    Chunk* next_chunk = reinterpret_cast<Chunk*>((uint8_t*)chunk+real_chunk_size);
+    next_chunk->prev = chunk;
+    next_chunk->next = chunk->next;
+    next_chunk->data_size = chunk->data_size-real_chunk_size;
+    next_chunk->free = true;
+
+    m_free_mem -= SSIZEOF(Chunk);
+
+    // update old chunk
+    chunk->free = false;
+    chunk->data_size = real_data_size;
+    chunk->next = next_chunk;
+
+    m_free_mem -= real_data_size;
+  }
 
   return reinterpret_cast<T*>((uint8_t*)chunk+SSIZEOF(Chunk));
 
 }
+
+template <typename T>
+T* MemoryPool::reallocate(T* _ptr, int64_t _size)
+{
+  // compute byte size and round to next multiple of max alignment
+  const int64_t byte_size = _size*SSIZEOF(T);
+  const int64_t alignment = alignof(std::max_align_t);
+  const int64_t real_data_size = (byte_size + alignment - 1) / alignment * alignment;
+
+  Chunk* p_chunk = reinterpret_cast<Chunk*>((uint8_t*)_ptr - SSIZEOF(Chunk));
+
+  // case 0: same size 
+  if (p_chunk->data_size == real_data_size)
+  {
+    // nothing to do
+    return _ptr;
+  }
+
+  // case 1: new size is smaller than old size
+  if (p_chunk->data_size > real_data_size)
+  {
+    // make this chunk smaller
+
+    // mem_diff_data is guaranteed to be a multiple of max_align
+    const int64_t mem_diff_data = p_chunk->data_size - real_data_size;
+
+    // if mem_diff_data is smaller than 1 chunk, we just leave the chunk as is
+    if (mem_diff_data < SSIZEOF(Chunk))
+    {
+      return _ptr;
+    }
+
+    p_chunk->data_size -= mem_diff_data;
+
+    // make next chunk larger if free 
+    if (p_chunk->next && p_chunk->free)
+    {
+      // create new chunk on stack to avoid overwriting next chunk info (I guess?)
+      Chunk new_chunk;
+      new_chunk.data_size = p_chunk->next->data_size + mem_diff_data;
+      new_chunk.free = true;
+      new_chunk.prev = p_chunk;
+      new_chunk.next = p_chunk->next->next;
+
+      Chunk* p_dest = reinterpret_cast<Chunk*>((uint8_t*)p_chunk+p_chunk->get_chunk_size());
+
+      // allocate on that address
+      new (p_dest) Chunk(new_chunk);
+
+      p_chunk->next = p_dest;
+      if (p_dest->next) p_dest->next->prev = p_dest;
+
+      m_free_mem += mem_diff_data;
+    }
+    // make a new chunk of size mem_diff_data if last chunk or next chunk is occupied
+    else if ((p_chunk->next && !p_chunk->free) || (!p_chunk->next)) 
+    {
+      // create new free chunk 
+      Chunk* p_new_chunk = reinterpret_cast<Chunk*>((uint8_t*)p_chunk+p_chunk->get_chunk_size());
+      p_new_chunk->data_size = mem_diff_data - SSIZEOF(Chunk);
+      p_new_chunk->free = true;
+      p_new_chunk->next = p_chunk->next;
+      p_new_chunk->prev = p_chunk;
+
+      p_chunk->next = p_new_chunk;
+      if (p_new_chunk->next) p_new_chunk->next->prev = p_new_chunk;
+
+      m_free_mem += (mem_diff_data - SSIZEOF(Chunk));
+    }
+
+    
+
+    return _ptr;
+  }
+
+  // case 2: New size is larger
+  if (p_chunk->data_size < real_data_size)
+  {
+    const int64_t mem_diff_data = real_data_size - p_chunk->data_size;
+
+    // if next chunk is free and large enough, just make this chunk larger
+    if (p_chunk->next && p_chunk->next->free && p_chunk->next->get_chunk_size() >= mem_diff_data)
+    {
+      const int64_t chunk_next_new_size = p_chunk->next->get_chunk_size() - mem_diff_data;
+      
+      const int64_t chunk_new_data_size = (chunk_next_new_size >= SSIZEOF(Chunk)) 
+                                          ? real_data_size 
+                                          : real_data_size + chunk_next_new_size;
+
+      p_chunk->data_size = chunk_new_data_size;
+
+      if (chunk_next_new_size >= SSIZEOF(Chunk))
+      { 
+        // create new smaller next chunk
+        Chunk* p_chunk_next_new = nullptr;
+
+        p_chunk_next_new = reinterpret_cast<Chunk*>((uint8_t*)p_chunk + p_chunk->get_chunk_size());
+        p_chunk_next_new->data_size = chunk_next_new_size - SSIZEOF(Chunk);
+        p_chunk_next_new->free = true;
+        p_chunk_next_new->next = p_chunk->next->next;
+        p_chunk_next_new->prev = p_chunk;
+
+        p_chunk->next = p_chunk_next_new;
+
+        m_free_mem -= mem_diff_data;
+      }
+      else 
+      {
+        // fully incorporate next chunk, link to nextnext chunk
+        p_chunk->next = p_chunk->next->next;
+        if (p_chunk->next) p_chunk->next->prev = p_chunk;
+
+        m_free_mem -= (mem_diff_data-SSIZEOF(Chunk));
+      }
+
+      return _ptr;
+    }
+
+    // if next chunk is not large enough or nullptr (i.e. end of segment), 
+    // we need to allocate new space and move memory there
+    if ((p_chunk->next && !p_chunk->free) || (!p_chunk))
+    {
+      T* ptr_copy = allocate<T>(real_data_size);
+      std::copy((uint8_t*)_ptr, (uint8_t*)_ptr+p_chunk->data_size, (uint8_t*)ptr_copy);
+      free<T>(_ptr);
+      return ptr_copy;
+    }
+  }
+
+  
+  return nullptr;
+
+}
+
 
 template <typename T>
 void MemoryPool::free(T* _p_array)
@@ -170,19 +322,26 @@ void MemoryPool::free(T* _p_array)
 
   m_free_mem += p_chunk->data_size;
 
-  // merge adjacent chunks
+  // merge right chunk if empty
   if (p_chunk->next != nullptr && p_chunk->next->free) 
   {
     Chunk* p_chunk_next = p_chunk->next;
+
     p_chunk->next = p_chunk_next->next;
+    if (p_chunk->next) p_chunk->next->prev = p_chunk;
+
     p_chunk->data_size += p_chunk_next->get_chunk_size();
     m_free_mem += SSIZEOF(Chunk);
   }
 
+  // merge left chunk if empty
   if (p_chunk->prev != nullptr && p_chunk->prev->free)
   {
     Chunk* p_chunk_prev = p_chunk->prev;
+
     p_chunk_prev->next = p_chunk->next;
+    if (p_chunk_prev->next) p_chunk_prev->next->prev = p_chunk_prev;
+
     p_chunk_prev->data_size += p_chunk->get_chunk_size();
     m_free_mem += SSIZEOF(Chunk);
   }

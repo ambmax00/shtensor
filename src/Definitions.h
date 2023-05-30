@@ -30,9 +30,9 @@ static inline constexpr int isizeof_impl()
   return static_cast<int>(usize);
 }
 
-#define SSIZEOF(type_or_expr) (ssizeof_impl<sizeof(type_or_expr)>())
+#define SSIZEOF(type_or_expr) (Shtensor::ssizeof_impl<sizeof(type_or_expr)>())
 
-#define ISIZEOF(type_or_expr) (isizeof_impl<sizeof(type_or_expr)>())
+#define ISIZEOF(type_or_expr) (Shtensor::isizeof_impl<sizeof(type_or_expr)>())
 
 template <typename T>
 static inline constexpr MPI_Datatype get_mpi_type()
