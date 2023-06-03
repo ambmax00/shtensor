@@ -13,8 +13,10 @@ namespace shmem
 template <typename T>
 Window<T> allocate(Context _ctx, int64_t _ssize)
 {
-  MemoryPool::unique_ptr<T> ptr = _ctx.get_mempool()->allocate_unique<T>(_ssize);
-  return Window<T>(std::move(ptr),_ssize);
+  SharedMemoryPool pPool = _ctx.get_mempool();
+  Window<T> win(pPool->allocate<T>(_ssize), _ssize, pPool->get_deleter<T>(), 
+                pPool->get_reallocator<T>());
+  return win;
 } 
 
 template <typename T>

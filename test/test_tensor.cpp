@@ -72,6 +72,37 @@ int main(int argc, char** argv)
       SHTENSOR_TEST_EQUAL(block_sizes4[3][indices[3]], iter->dim(3), result);
     }
 
+    // ============= TEST TENSOR FILTERING ====================
+
+    // fill every block with 0s and 1s alternatively then filter
+    
+
+    for (int iblk = 0; iblk < tensor4.get_nb_nzblocks_local(); ++iblk)
+    {
+      const float val = (iblk % 2 == 0) ? 0.f : 1.f;
+
+      auto block = tensor4.get_local_block(iblk);
+
+      std::fill(block.begin(), block.end(), val);
+    }
+
+    tensor4.filter(1e-6, Shtensor::BlockNorm::FROBENIUS, false);
+
+    // check block indices
+
+    for (auto iter = tensor4.begin(); iter != tensor4.end(); ++iter)
+    { 
+      const int64_t iblk = iter - tensor4.begin();
+      const bool expected_empty = (iblk % 2 == 0);
+      const bool is_empty = (iter.get_block_index() == -1);
+
+      SHTENSOR_TEST_EQUAL(expected_empty, is_empty, result);
+    }
+
+    tensor4.compress();
+
+    // check 
+
   }
 
   MPI_Finalize();

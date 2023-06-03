@@ -1,7 +1,7 @@
 #ifndef SHTENSOR_WINDOW_H
 #define SHTENSOR_WINDOW_H
 
-#include <memory>
+#include <functional>
 
 namespace Shtensor
 {
@@ -11,15 +11,22 @@ class Window
 {
  public:
 
+  using Deleter = std::function<void(T*)>;
+  using Reallocator = std::function<T*(T*,int64_t)>;
+
   Window()
     : m_p_data(nullptr)
     , m_size(0)
+    , m_deleter([]([[maybe_unused]]T* _ptr){ return; })
+    , m_reallocator([](T* _ptr, [[maybe_unused]]int64_t _size) { return _ptr; })
   {
   }
 
-  Window(const std::shared_ptr<T>& _ptr, int64_t _size)
+  Window(T* _ptr, int64_t _size, Deleter _deleter, Reallocator _reallocator)
     : m_p_data(_ptr)
     , m_size(_size)
+    , m_deleter(_deleter)
+    , m_reallocator(_reallocator)
   {
   }
 
@@ -31,28 +38,33 @@ class Window
 
   Window& operator=(Window&& _win) = default;
 
-  ~Window() {}
+  ~Window() { if (m_deleter) m_deleter(m_p_data); }
 
-  T& operator[](int64_t _index) { return m_p_data.get()[_index]; }
+  T& operator[](int64_t _index) { return m_p_data[_index]; }
 
-  const T& operator[](int64_t _index) const { return m_p_data.get()[_index]; }
+  const T& operator[](int64_t _index) const { return m_p_data[_index]; }
 
   T* data() { return m_p_data; }
 
-  const T* data() const { return m_p_data.get(); }
+  const T* data() const { return m_p_data; }
 
-  T* begin() { return m_p_data.get(); }
+  T* begin() { return m_p_data; }
 
-  T* end() { return m_p_data.get() + m_size; }
+  T* end() { return m_p_data + m_size; }
 
-  const T* cbegin() const { return m_p_data.get(); }
+  const T* cbegin() const { return m_p_data; }
 
-  const T* cend() const { return m_p_data.get() + m_size; }
+  const T* cend() const { return m_p_data + m_size; }
+
+  void resize(int64_t _size) { m_p_data = m_reallocator(m_p_data, _size); }
 
  private:
 
-  std::shared_ptr<T> m_p_data;
+  T* m_p_data;
   int64_t m_size;
+  Deleter m_deleter;
+  Reallocator m_reallocator;
+
 
 };
 

@@ -353,7 +353,7 @@ class Tensor
       sizes[i] = m_block_sizes[i][indices[i]];
     }
 
-    T* p_data = m_win_data + m_sparse_info.slice_offset[_idx];
+    T* p_data = m_win_data.data() + m_sparse_info.slice_offset[_idx];
 
     return BlockSpan<T,N>(p_data, sizes);
   }
@@ -430,6 +430,11 @@ class Tensor
       std::array<int,N> out;
       Utils::unroll_index(m_tensor.m_block_strides, m_idx, out);
       return out;
+    }
+
+    int64_t get_block_index() const 
+    {
+      return m_tensor.m_sparse_info.slice_idx[m_idx];
     }
 
     reference operator*()
@@ -710,8 +715,8 @@ void Tensor<T,N>::filter(T _eps, BlockNorm _norm, bool _compress)
 
     auto loop_func = [this,_eps,_norm](int64_t _id)
     {
-      BlockSpan<T,N> block = this->begin() + _id;
-      if (block.get_norm(_norm) < _eps) 
+      auto iter = this->begin() + _id;
+      if (iter->get_norm(_norm) < _eps) 
       {
         this->m_sparse_info.slice_idx[_id] = -1;
       }
@@ -730,7 +735,7 @@ void Tensor<T,N>::filter(T _eps, BlockNorm _norm, bool _compress)
 template <typename T, int N>
 void Tensor<T,N>::compress()
 {
-  /*
+
   // loop over blocks and compress
   int prev_row = 0;
   
@@ -742,8 +747,8 @@ void Tensor<T,N>::compress()
 
   int64_t nb_zero_blocks = 0;
 
-  int64_t nb_nze_new;
-  int64_t nb_nzblocks_new;
+  int64_t nb_nze_new = 0;
+  int64_t nb_nzblocks_new = 0;
 
   for (int64_t iblk = 0; iblk < m_sinfo_local.nb_nzblocks; ++iblk)
   {
@@ -761,7 +766,6 @@ void Tensor<T,N>::compress()
       blk_size *= m_block_sizes[i][indices[i]];
     }
 
-    const int64_t blk_idx = m_sparse_info.slice_idx[iblk];
     const int64_t blk_off = m_sparse_info.slice_offset[iblk];
     const bool is_empty = (blk_idx == -1);
 
@@ -804,7 +808,26 @@ void Tensor<T,N>::compress()
 
     prev_row = row;
 
-  }*/
+  }
+
+  // get max number of blocks and elements
+  MPI_Allreduce(&nb_nzblocks_new, &m_sinfo_local.nb_nzblocks_sym, 1, MPI_INT64_T, MPI_MAX, 
+                m_ctx.get_comm());
+  MPI_Allreduce(&nb_nze_new, &m_sinfo_local.nb_nze_sym, 1, MPI_INT64_T, MPI_MAX, m_ctx.get_comm());
+
+  m_sinfo_local.nb_nzblocks = nb_nzblocks_new;
+  m_sinfo_local.nb_nze = nb_nze_new;
+
+  MPI_Allreduce(&nb_nzblocks_new, &m_sinfo_global.nb_nzblocks, 1, MPI_INT64_T, MPI_SUM, 
+                m_ctx.get_comm()); 
+  MPI_Allreduce(&nb_nze_new, &m_sinfo_global.nb_nze, 1, MPI_INT64_T, MPI_SUM, m_ctx.get_comm());
+
+  m_sinfo_global.nb_nzblocks_sym = m_ctx.get_size() * m_sinfo_local.nb_nzblocks_sym;
+  m_sinfo_global.nb_nze_sym = m_ctx.get_size() * m_sinfo_local.nb_nze_sym;
+
+  // resize arrays
+
+  m_win_data.resize(m_sinfo_local.nb_nze_sym);
 
 }
 

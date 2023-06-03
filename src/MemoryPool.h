@@ -62,6 +62,12 @@ class MemoryPool
   }
 
   template <typename T>
+  constexpr auto get_reallocator()
+  {
+    return [this](T* _ptr, int64_t _ssize) mutable { return reallocate(_ptr,_ssize); };
+  }
+
+  template <typename T>
   using deleter_function = 
     typename std::result_of<decltype(&MemoryPool::get_deleter<T>)(MemoryPool)>::type;
 
@@ -139,8 +145,8 @@ T* MemoryPool::allocate(int64_t _size)
 
   if (!chunk) 
   {
-    Log::error(m_logger, "Memorypool is out of memory");
-    return nullptr;
+    Log::error(m_logger, "Memorypool is out of memory. Requested {} MiB", (double)_size / (1024*1024));
+    throw std::runtime_error("Out of memory");
   }
 
   const int64_t mem_diff = chunk->data_size - real_data_size;
