@@ -7,6 +7,7 @@
 #include <array>
 #include <functional>
 #include <numeric>
+#include <set>
 #include <vector>
 
 namespace Shtensor
@@ -57,7 +58,7 @@ static inline std::vector<int> compute_default_dist (int nel, int nbin, std::vec
 template <class Container>
 static inline Container compute_strides(const Container& _sizes)
 {
-  Container strides;
+  Container strides = _sizes;
   std::generate(strides.begin(), strides.end(), 
     [&_sizes,i=0]() mutable
     {
@@ -221,6 +222,26 @@ static inline void divide_equally(Integer _nb_elements, int _bin, int _nb_bins, 
 
   return;
 }
+
+template <class Array>
+bool has_duplicates(const Array& _array)
+{
+  return (std::set(_array.begin(),_array.end()).size() != _array.size());
+}
+
+template <class Array1, class Array2>
+bool contains_same_elements(const Array1& _array1, const Array2& _array2)
+{
+  Array1 _array1_copy = _array1;
+  Array2 _array2_copy = _array2;
+
+  std::sort(_array1_copy.begin(), _array1_copy.end());
+  std::sort(_array2_copy.begin(), _array2_copy.end());
+
+  return std::equal(_array1_copy.begin(), _array1_copy.end(), _array2_copy.begin());
+}
+
+
 
 } // end namespace Utils 
 
