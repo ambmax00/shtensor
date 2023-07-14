@@ -1,5 +1,6 @@
 set(SOURCES 
     Context.cpp 
+    Kernel.cpp
     MemoryPool.cpp
     Tensor.cpp
     ThreadBarrier.cpp
@@ -7,4 +8,8 @@ set(SOURCES
 
 add_library(shtensor ${SOURCES})
 
-target_link_libraries(shtensor MPI::MPI_CXX fmt::fmt asmjit::asmjit)
+target_link_libraries(shtensor 
+                      MPI::MPI_CXX 
+                      fmt::fmt 
+                      asmjit::asmjit
+                      ${BLAS_LIBRARIES})

@@ -28,6 +28,13 @@
     result += 1;\
   }
 
+#define SHTENSOR_TEST_ALMOST_EQUAL(a, b, eps, result) \
+  if (std::abs(a-b) > eps)\
+  {\
+    Shtensor::Log::print(logger, "{} and {} differ\n", #a, #b);\
+    result += 1;\
+  }
+
 #define SHTENSOR_TEST_TRUE(expr,result) \
   if (!expr)\
   {\

@@ -13,6 +13,8 @@ RUN set -ex ; \
         pkg-config \
         git \
 	mpich \
+	libblas-dev \
+	liblapack-dev \
         libmpich-dev \
         openmpi-bin \
         libopenmpi-dev \
@@ -75,3 +77,5 @@ RUN sed -i 's/.*\(StrictHostKeyChecking\).*/\1 no/' /etc/ssh/ssh_config && \
     chown -R dev: /home/dev/.ssh
 
 WORKDIR /home/dev
+
+RUN pip3 install numpy

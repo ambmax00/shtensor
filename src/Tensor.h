@@ -22,7 +22,7 @@ template <typename T, int N>
 class Tensor 
 {
 
-  static_assert(N >= 1, "Tensor has to have dimension >= 1");
+  static_assert(N >= 2, "Tensor has to have dimension >= 2");
 
  public: 
   

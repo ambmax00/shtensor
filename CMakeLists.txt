@@ -11,6 +11,8 @@ set(CMAKE_CXX_STANDARD 17)
 add_compile_options(-Wall -Wextra -pedantic)
 
 find_package(MPI REQUIRED)
+find_package(BLAS REQUIRED)
+find_package(Python3 REQUIRED COMPONENTS Development NumPy)
 
 if (${LOGLEVEL})
   add_compile_definitions(SHTENSOR_LOGLEVEL=${LOGLEVEL})

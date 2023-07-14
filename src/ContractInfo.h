@@ -20,11 +20,19 @@ struct ContractInfo
 
   void print(Log::Logger& _logger)
   {
-    Log::print(_logger, "map_row: {}\n", fmt::join(map_row, ","));
-    Log::print(_logger, "map_col: {}\n", fmt::join(map_col, ","));
-    Log::print(_logger, "scatter row: {}\n", fmt::join(scatter_row, ","));
-    Log::print(_logger, "scatter col: {}\n", fmt::join(scatter_col, ","));
+    Log::print(_logger, get_info());
   }
+
+  std::string get_info()
+  {
+    std::string out;
+    out += fmt::format("map_row: {}\n", fmt::join(map_row, ","));
+    out += fmt::format("map_col: {}\n", fmt::join(map_col, ","));
+    out += fmt::format("scatter row: {}\n", fmt::join(scatter_row, ","));
+    out += fmt::format("scatter col: {}\n", fmt::join(scatter_col, ","));
+    return out;
+  }
+
 };
 
 static inline std::vector<int> create_scatter_vector(const std::vector<int>& _map,   

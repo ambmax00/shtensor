@@ -241,7 +241,84 @@ bool contains_same_elements(const Array1& _array1, const Array2& _array2)
   return std::equal(_array1_copy.begin(), _array1_copy.end(), _array2_copy.begin());
 }
 
+template <class Array>
+typename Array::value_type product(const Array& _array)
+{
+  return std::accumulate(_array.begin(),_array.end(),typename Array::value_type(1), 
+                         std::multiplies<typename Array::value_type>{});
+}
 
+
+template <typename T, class SizeArray, class OrderArray>
+void reshape(const T* _p_in, const SizeArray& _sizes, const OrderArray& _order, T* _p_out)
+{
+  const int dim = Utils::ssize(_sizes);
+  const int64_t nb_elements = Utils::product(_sizes);
+
+  // get reordered sizes
+  const auto& ssizes = _sizes;
+  auto rsizes = _sizes;
+  
+  for (int i = 0; i < ssizes.size(); ++i)
+  {
+    rsizes[i] = ssizes[_order[i]];
+  }
+
+  const auto sstrides = compute_strides(ssizes);
+  const auto rstrides = compute_strides(rsizes);
+
+  std::vector<int> sindices(ssizes.size(),0);
+  std::vector<int> rindices(ssizes.size(),0);
+
+  for (int64_t sidx = 0; sidx < nb_elements; ++sidx)
+  {
+    int64_t sidx_tmp = sidx;
+    for (int i = 0; i < dim; ++i)
+    {
+      sindices[dim-i-1] = sidx_tmp / sstrides[dim-i-1];
+      sidx_tmp = sidx_tmp % sstrides[dim-i-1];
+    }
+    
+    for (int i = 0; i < dim; ++i)
+    {
+      rindices[i] = sindices[_order[i]];
+    }
+    
+    int64_t ridx = 0;
+    for (int i = 0; i < dim; ++i)
+    {
+      ridx += rindices[i]*rstrides[i];
+    }
+
+    _p_out[ridx] = _p_in[sidx];
+  }
+  
+}
+
+template <class Vector>
+Vector concat(const Vector& _v1, const Vector& _v2)
+{
+  Vector out = _v1;
+  out.insert(out.end(),_v2.begin(),_v2.end());
+  return out;
+}
+
+inline static std::vector<std::string> split(const std::string& _str, const std::string& _del)
+{
+  std::vector<std::string> out;
+
+  std::size_t last = 0; 
+  std::size_t next = 0; 
+  while ((next = _str.find(_del, last)) != std::string::npos) 
+  {   
+    out.push_back(_str.substr(last, next-last));   
+    last = next + 1; 
+  } 
+  
+  out.push_back(_str.substr(last));
+
+  return out;
+}
 
 } // end namespace Utils 
 
