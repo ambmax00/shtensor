@@ -39,17 +39,11 @@ class ThreadPool
 
   std::mutex m_t2m_mutex;
 
-  std::mutex m_t2t_mutex;
-
   std::condition_variable m_m2t_condition;
 
   std::condition_variable m_t2m_condition;
 
-  std::condition_variable m_t2t_condition;
-
   int m_t2m_idx;
-
-  int m_t2t_idx;
 
   std::vector<AtomicPtr<int64_t>> m_loop_p_index;
 

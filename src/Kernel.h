@@ -22,80 +22,67 @@ using KernelFunctionSp = std::function<int(float*,float*,float*)>;
 
 using KernelFunctionDp = std::function<int(double*,double*,double*)>;
 
-enum KernelType
+enum class KernelMethod
 {
-  KERNEL_LAPACK = 0
+  INVALID = 0x000000,
+  LAPACK = 0x000001,
+  XMM = 0x000002
 };
 
-class KernelImpl
+enum class KernelType
+{
+  INVALID = 0x000000,
+  FLOAT32 = 0x000100,
+  FLOAT64 = 0x000200
+};
+
+template <typename T>
+static constexpr inline KernelType kernel_type()
+{
+  if constexpr (std::is_same<float,T>::value)
+  {
+    return KernelType::FLOAT32;
+  }
+  if constexpr (std::is_same<double,T>::value)
+  {
+    return KernelType::FLOAT64;
+  }
+  return KernelType::INVALID; 
+}
+
+class KernelImpl;
+
+class KernelBase
 {
  public:
 
-  template <class T, class ArrayIn1, class ArrayIn2, class ArrayOut>
-  explicit KernelImpl(const std::string _expr,
-                      const ArrayIn1& _sizes_in1, 
-                      const ArrayIn2& _sizes_in2,
-                      const ArrayOut& _sizes_out,
-                      T _alpha, 
-                      T _beta,
-                      KernelType _kernel_type)
-    : m_expression(_expr)
-    , m_sizes_in1(_sizes_in1.begin(),_sizes_in1.end())
-    , m_sizes_in2(_sizes_in2.begin(),_sizes_in2.end())
-    , m_sizes_out(_sizes_out.begin(),_sizes_out.end())
-    , m_alpha(_alpha)
-    , m_beta(_beta)
-    , m_kernel_type(_kernel_type)
-    , m_type_info(typeid(T))
-    , m_logger(Log::create("KernelImpl"))
-  {
-    static_assert(std::is_same<T,double>::value || std::is_same<T,float>::value, 
-                  "Only float and double allowed.");
+  explicit KernelBase(const std::string _expr, 
+                      const std::vector<int>& _sizes_in1, 
+                      const std::vector<int>& _sizes_in2,
+                      const std::vector<int>& _sizes_out,
+                      std::any _alpha, 
+                      std::any _beta,
+                      KernelType _kernel_type,
+                      KernelMethod _kernel_method);
 
-    std::string err_msg;
-    bool valid = compute_contract_info(_expr,m_sizes_in1,m_sizes_in2,m_sizes_out,m_info_in1,
-                                       m_info_in2,m_info_out,err_msg);
-
-    if (!valid)
-    {
-      throw fmt::format("Contract info failed: {}\n", err_msg);
-    }
-  }
-
-  KernelFunctionSp create_kernel_lapack_float();
-
-  KernelFunctionDp create_kernel_lapack_double();
+  std::any get_kernel_function();
 
   std::string get_info();
 
- protected:
+  ~KernelBase();
 
-  const std::string m_expression; 
+ protected: 
 
-  // using vector so I do not have to carry around three integers as template parameters...
-  std::vector<int> m_sizes_in1;
-  std::vector<int> m_sizes_in2;
-  std::vector<int> m_sizes_out;
-
-  std::any m_alpha;
-  std::any m_beta;
-
-  ContractInfo m_info_in1;
-  ContractInfo m_info_in2;
-  ContractInfo m_info_out;
-
-  KernelType m_kernel_type;
-
-  const std::type_info& m_type_info;
-
-  Log::Logger m_logger;
+  std::unique_ptr<KernelImpl> mp_impl;
 
 };
 
 template <class T>
-class Kernel : public KernelImpl
+class Kernel : public KernelBase
 {
  public: 
+
+  using KernelFunctionT = std::function<int(T*,T*,T*)>;
 
   template <class ArrayIn1, class ArrayIn2, class ArrayOut>
   explicit Kernel(const std::string _expr, 
@@ -104,10 +91,27 @@ class Kernel : public KernelImpl
                   const ArrayOut& _sizes_out,
                   T _alpha, 
                   T _beta,
-                  KernelType _kernel_type = KERNEL_LAPACK)
-    : KernelImpl(_expr, _sizes_in1, _sizes_in2, _sizes_out, _alpha, _beta, _kernel_type) 
+                  KernelMethod _kernel_method)
+    : KernelBase(_expr, 
+                 std::vector<int>(_sizes_in1.begin(), _sizes_in1.end()), 
+                 std::vector<int>(_sizes_in2.begin(), _sizes_in2.end()), 
+                 std::vector<int>(_sizes_out.begin(), _sizes_out.end()), 
+                 _alpha, 
+                 _beta, 
+                 kernel_type<T>(),
+                 _kernel_method)
+    , m_kernel_function(std::any_cast<KernelFunctionT>(get_kernel_function()))
   {
   }
+
+  inline void call(T* _a, T* _b, T* _c)
+  {
+    m_kernel_function(_a,_b,_c);
+  }
+
+ private:
+
+  KernelFunctionT m_kernel_function;
 
 };
 

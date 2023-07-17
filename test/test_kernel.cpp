@@ -137,13 +137,12 @@ int test_contract(const std::string _expr,
   fill_random<float>(data_b.data(), Shtensor::Utils::ssize(data_b));
   //fill_random<float>(data_c.data(), Shtensor::Utils::ssize(data_c));
 
-  Shtensor::Kernel<float> kernel(_expr, _sizes_a, _sizes_b, _sizes_c, 1.0, 0.0);
+  Shtensor::Kernel<float> kernel(_expr, _sizes_a, _sizes_b, _sizes_c, 1.0, 0.0, 
+                                 Shtensor::KernelMethod::LAPACK);
 
   fmt::print(kernel.get_info());
 
-  auto func = kernel.create_kernel_lapack_float();
-
-  func(data_a.data(), data_b.data(), data_c.data());
+  kernel.call(data_a.data(), data_b.data(), data_c.data());
 
   float lapack_rms = 0;
   get_statistics(data_c.data(), _sizes_c, lapack_rms);
