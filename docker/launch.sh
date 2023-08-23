@@ -61,7 +61,7 @@ declare -A node_ips
 for node in ${node_list[@]}; do
   echo "Launching $node"
   
-  docker run --hostname $node -v $directory:/home/dev/trunk --name $node \
+  docker run --cap-add=SYS_PTRACE --security-opt seccomp=unconfined --hostname $node -v $directory:/home/dev/trunk --name $node \
     -t -d -i --rm $image_name /usr/sbin/sshd -D > /dev/null
 
   ip_address=`docker inspect \

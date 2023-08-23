@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <functional>
+#include <limits>
 #include <numeric>
 #include <set>
 #include <vector>
@@ -15,6 +16,25 @@ namespace Shtensor
 
 namespace Utils 
 {
+
+template<typename>
+struct ArraySize;
+
+template<typename T, size_t N>
+struct ArraySize<std::array<T,N>> 
+{
+  static constexpr size_t size = N;
+};
+
+// needed because some compilers do not like array.size() in templates
+#define ARRAY_SSIZE(_array) \
+  ArraySize<\
+    typename std::remove_const<\
+      typename std::remove_reference<\
+        decltype(_array)\
+      >::type\
+    >::type\
+  >::size
 
 template <class Container>
 static inline constexpr int64_t ssize(const Container& _container)
@@ -80,8 +100,8 @@ static inline constexpr bool is_valid_index_type()
 }
 
 template <class StrideArray, class... Idx, std::size_t... Is> 
-static inline int64_t roll_indices_impl(const StrideArray& _strides, 
-                                        Idx... _idx, std::index_sequence<Is...> const &)
+static constexpr inline int64_t roll_indices_impl(const StrideArray& _strides, 
+                                                  Idx... _idx, std::index_sequence<Is...> const &)
 {
   static_assert((is_valid_index_type<Idx>() && ...), 
                 "Indices do not have correct type");
@@ -89,24 +109,24 @@ static inline int64_t roll_indices_impl(const StrideArray& _strides,
   static_assert(is_valid_index_type<typename StrideArray::value_type>(),
                 "Stride array does not have the correct type");
 
-  static_assert(sizeof...(_idx) == _strides.size(), 
+  static_assert(sizeof...(_idx) == ARRAY_SSIZE(_strides), 
                 "Incorrect number of indices passed to function"); 
 
   return ((_idx*_strides[Is]) + ...);
 }
 
 template <class StrideArray, class... Idx>
-static inline int64_t roll_indices(const StrideArray& _strides, 
-                                   Idx... _idx)
+static constexpr inline int64_t roll_indices(const StrideArray& _strides, 
+                                             Idx... _idx)
 {
   return roll_indices_impl<StrideArray,Idx...>(_strides, std::forward<Idx>(_idx)..., 
-                                               std::make_index_sequence<_strides.size()>{}); 
+                                               std::make_index_sequence<ARRAY_SSIZE(_strides)>{}); 
 }
 
 template <class StrideArray, class IndexArray, std::size_t... Is>
-static inline int64_t roll_index_array_impl(const StrideArray& _strides, 
-                                            const IndexArray& _index_array,
-                                            std::index_sequence<Is...> const&)
+static constexpr inline int64_t roll_index_array_impl(const StrideArray& _strides, 
+                                                      const IndexArray& _index_array,
+                                                      std::index_sequence<Is...> const&)
 {
   static_assert(is_valid_index_type<typename IndexArray::value_type>(), 
                 "Index array does not have correct size");
@@ -114,7 +134,7 @@ static inline int64_t roll_index_array_impl(const StrideArray& _strides,
   static_assert(is_valid_index_type<typename StrideArray::value_type>(),
                 "Stride array does not have the correct type");
   
-  static_assert(_strides.size() == _index_array.size(),
+  static_assert(ARRAY_SSIZE(_strides) == ARRAY_SSIZE(_index_array),
                 "Index array does not have same size as stride array");
 
   return ((int64_t(_index_array[Is])*int64_t(_strides[Is])) + ...);
@@ -134,7 +154,7 @@ static inline void unroll_index_impl(const StrideArray& _strides,
                                      IndexArray& _indices,
                                      std::index_sequence<Is...> const &)
 {
-  static_assert(_strides.size() == _indices.size(), 
+  static_assert(ARRAY_SSIZE(_strides) == ARRAY_SSIZE(_indices), 
                 "Stride array does not have same size as index array");
 
   static_assert(is_valid_index_type<typename IndexArray::value_type>(),
@@ -143,7 +163,7 @@ static inline void unroll_index_impl(const StrideArray& _strides,
   static_assert(is_valid_index_type<typename StrideArray::value_type>(),
                 "Stride array does not have the correct type");
 
-  constexpr int64_t Dim = ssize(_strides);
+  constexpr int64_t Dim = ARRAY_SSIZE(_strides);
 
   // We exploit the comma operator here to put everything in one single line
   // for the parameter pack expansion to do its magic
@@ -157,11 +177,11 @@ static inline void unroll_index_impl(const StrideArray& _strides,
 }
 
 template <class StrideArray, class LongIndexType, class IndexArray>
-static inline void unroll_index(const StrideArray& _strides, 
-                                LongIndexType _idx,
-                                IndexArray& _indices)
+static constexpr inline void unroll_index(const StrideArray& _strides, 
+                                          LongIndexType _idx,
+                                          IndexArray& _indices)
 {
-  unroll_index_impl(_strides, _idx, _indices, std::make_index_sequence<_strides.size()>{});
+  unroll_index_impl(_strides, _idx, _indices, std::make_index_sequence<ARRAY_SSIZE(_strides)>{});
 }
 
 template <int N>
@@ -200,16 +220,17 @@ static inline int64_t varray_mult_ssize(const MultiArray& _array)
 }
 
 template <class MultiArray>
-static inline auto varray_get_sizes(const MultiArray& _array)
+static constexpr inline auto varray_get_sizes(const MultiArray& _array)
 {
-  std::array<int64_t,_array.size()> out;
+  std::array<int64_t, ARRAY_SSIZE(_array)> out;
   std::generate(out.begin(), out.end(), 
     [&_array,i=0]() mutable { return Utils::ssize(_array[i++]); });
   return out;
 }
 
 template <class Integer>
-static inline void divide_equally(Integer _nb_elements, int _bin, int _nb_bins, Integer& _bin_start, Integer& _bin_end)
+static inline void divide_equally(Integer _nb_elements, int _bin, int _nb_bins, 
+                                  Integer& _bin_start, Integer& _bin_end)
 {
   // divide such that bin 0 takes the rest
   Integer rest = _nb_elements % _nb_bins;
@@ -259,7 +280,7 @@ void reshape(const T* _p_in, const SizeArray& _sizes, const OrderArray& _order, 
   const auto& ssizes = _sizes;
   auto rsizes = _sizes;
   
-  for (int i = 0; i < ssizes.size(); ++i)
+  for (int i = 0; i < Utils::ssize(_sizes); ++i)
   {
     rsizes[i] = ssizes[_order[i]];
   }
@@ -318,6 +339,46 @@ inline static std::vector<std::string> split(const std::string& _str, const std:
   out.push_back(_str.substr(last));
 
   return out;
+}
+
+template <class T>
+typename std::enable_if<std::is_integral<T>::value,T>::type div_ceil(T _a, T _b)
+{
+  return static_cast<T>(std::ceil(static_cast<double>(_a)/static_cast<double>(_b)));
+}
+
+template <class T>
+constexpr bool is_valid_float_type()
+{
+  if constexpr (std::is_same<T,float>::value || std::is_same<T,double>::value)
+  {
+    return true;
+  }
+  else 
+  {
+    return false;
+  }
+}
+
+template <class T>
+constexpr typename std::enable_if<is_valid_float_type<T>(),bool>::type bit_equal(T _a, T _b)
+{
+  if (sizeof(T) == 4)
+  {
+    return ((*reinterpret_cast<int32_t*>(&_a)) == (*reinterpret_cast<int32_t*>(&_b)));
+  }
+  if (sizeof(T) == 8)
+  {
+    return ((*reinterpret_cast<int64_t*>(&_a)) == (*reinterpret_cast<int64_t*>(&_b)));
+  }
+}
+
+template <class T>
+constexpr typename std::enable_if<std::is_integral<T>::value,T>::type 
+round_next_multiple(T _val, T _factor)
+{    
+    T is_pos = (T)(_val >= 0);
+    return ((_val + is_pos * (_factor - 1)) / _factor) * _factor;
 }
 
 } // end namespace Utils 

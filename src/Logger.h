@@ -122,6 +122,9 @@ static inline void error(Logger& _logger, const std::string _msg, Args&&... _arg
   }
 }
 
+#define DEBUG_VAR(logger, var) \
+  debug(logger, "{}: {}", #var, var);
+
 } // end namespace Shtensor::Log
 
 #endif // SHTENSOR_LOGGER

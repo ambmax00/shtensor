@@ -106,7 +106,9 @@ class Kernel : public KernelBase
 
   inline void call(T* _a, T* _b, T* _c)
   {
-    m_kernel_function(_a,_b,_c);
+    fmt::print("A: {:p} B: {:p} C_ {:p}\n", (void*)_a, (void*)_b, (void*)_c);
+    int res = m_kernel_function(_a,_b,_c);
+    fmt::print("Result is {}\n", res);
   }
 
  private:

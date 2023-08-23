@@ -45,6 +45,10 @@ class Span
 
   ~Span() {}
 
+  T* data() { return m_p_data; }
+
+  const T* data() const { return m_p_data; }
+
   iterator begin() { return m_p_data; }
 
   iterator end() { return m_p_data + m_size; }

@@ -22,6 +22,7 @@ RUN set -ex ; \
         python3-dev \
         python3-pip \
         unzip \
+	rr \
         rsync \
 	sudo \
         openssh-client \
@@ -55,6 +56,9 @@ RUN set -ex ; \
 #    make -j -C /opt/libxsmm MALLOC=0
 
 #ENV PKG_CONFIG_PATH="/opt/libxsmm/lib:${PKG_CONFIG_PATH}"
+
+# for running rr
+RUN sysctl -w kernel.perf_event_paranoid=1
 
 ENV OMPI_ALLOW_RUN_AS_ROOT=1 
 ENV OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 

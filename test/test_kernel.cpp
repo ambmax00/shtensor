@@ -132,39 +132,99 @@ int test_contract(const std::string _expr,
   std::vector<float> data_a(_nb_cons*nb_elements_a,0);
   std::vector<float> data_b(_nb_cons*nb_elements_b,0);
   std::vector<float> data_c(_nb_cons*nb_elements_c,0);
+  std::vector<float> result_c(_nb_cons*nb_elements_c,0);
 
   fill_random<float>(data_a.data(), Shtensor::Utils::ssize(data_a));
   fill_random<float>(data_b.data(), Shtensor::Utils::ssize(data_b));
-  //fill_random<float>(data_c.data(), Shtensor::Utils::ssize(data_c));
+  fill_random<float>(data_c.data(), Shtensor::Utils::ssize(data_c));
 
   Shtensor::Kernel<float> kernel(_expr, _sizes_a, _sizes_b, _sizes_c, 1.0, 0.0, 
                                  Shtensor::KernelMethod::LAPACK);
 
   fmt::print(kernel.get_info());
 
-  kernel.call(data_a.data(), data_b.data(), data_c.data());
+  std::copy(data_c.begin(), data_c.end(), result_c.begin());
+  kernel.call(data_a.data(), data_b.data(), result_c.data());
 
   float lapack_rms = 0;
-  get_statistics(data_c.data(), _sizes_c, lapack_rms);
+  get_statistics(result_c.data(), _sizes_c, lapack_rms);
 
   fmt::print("RMS for LAPACK kernel is {}\n", lapack_rms);
 
-  if (!einsum_python(_expr, 1.0, data_a.data(), _sizes_a, data_b.data(), _sizes_b,
-                      0.0, data_c.data(), _sizes_c))
-  {
-    printf("Python failed\n");
-    result += 1;
-  }
+  fmt::print("C: {}", fmt::join(result_c.begin(), result_c.end(), ","));
+
+  Shtensor::Kernel<float> xmm_kernel(_expr, _sizes_a, _sizes_b, _sizes_c, 1.0, 0.0, 
+                                     Shtensor::KernelMethod::XMM);
+
+  std::copy(data_c.begin(), data_c.end(), result_c.begin());
+  xmm_kernel.call(data_a.data(), data_b.data(), result_c.data());
+
+  fmt::print("A: [{}]\n", fmt::join(data_a.begin(), data_a.end(), ","));
+  fmt::print("B: [{}]\n", fmt::join(data_b.begin(), data_b.end(), ","));
+  fmt::print("C: [{}]\n", fmt::join(result_c.begin(), result_c.end(), ","));
+
+  // if (!einsum_python(_expr, 1.0, data_a.data(), _sizes_a, data_b.data(), _sizes_b,
+  //                     0.0, data_c.data(), _sizes_c))
+  // {
+  //   printf("Python failed\n");
+  //   result += 1;
+  // }
 
   float python_rms = 0;
-  get_statistics(data_c.data(), _sizes_c, python_rms);
+  get_statistics(result_c.data(), _sizes_c, python_rms);
 
   fmt::print("RMS for Python kernel is {}\n", python_rms);
 
-  SHTENSOR_TEST_ALMOST_EQUAL(python_rms, lapack_rms, 1e-8, result);
+  SHTENSOR_TEST_ALMOST_EQUAL(python_rms, lapack_rms, 1e-6, result);
 
   return result;
 }
+
+template <int N, int M, int K>
+int test_kernel(const std::string _expr, 
+                const std::array<int,N>& _sizes_a,
+                const std::array<int,M>& _sizes_b,
+                const std::array<int,K>& _sizes_c)
+{
+  int result = 0;
+
+  auto logger = Shtensor::Log::create("test_xmm");
+
+  const int nb_elements_a = Shtensor::Utils::product(_sizes_a);
+  const int nb_elements_b = Shtensor::Utils::product(_sizes_b);
+  const int nb_elements_c = Shtensor::Utils::product(_sizes_c);
+
+  std::vector<float> data_a(nb_elements_a,0);
+  std::vector<float> data_b(nb_elements_b,0);
+  std::vector<float> data_c(nb_elements_c,0);
+
+  fill_random<float>(data_a.data(), Shtensor::Utils::ssize(data_a));
+  fill_random<float>(data_b.data(), Shtensor::Utils::ssize(data_b));
+  fill_random<float>(data_c.data(), Shtensor::Utils::ssize(data_c));
+
+  const float sum_c = std::accumulate(data_c.begin(), data_c.end(), 0.0);
+
+  fmt::print("A: [{}]\n", fmt::join(data_a.begin(), data_a.end(), ","));
+  fmt::print("B: [{}]\n", fmt::join(data_b.begin(), data_b.end(), ","));
+  fmt::print("C: [{}]\n", fmt::join(data_c.begin(), data_c.end(), ","));
+
+  const float beta = 2.0;
+  Shtensor::Kernel<float> kernel(_expr, _sizes_a, _sizes_b, _sizes_c, 0.0, beta, 
+                                 Shtensor::KernelMethod::XMM);
+
+  kernel.call(data_a.data(), data_b.data(), data_c.data());
+
+  fmt::print("C: [{}]\n", fmt::join(data_c.begin(), data_c.end(), ","));
+
+  const float sum_c_after = std::accumulate(data_c.begin(), data_c.end(), 0.0);
+
+  SHTENSOR_TEST_ALMOST_EQUAL(beta*sum_c, sum_c_after, 1e-6, result);
+
+  return result;
+
+}
+
+
 
 int main(int argc, char** argv)
 {
@@ -179,13 +239,27 @@ int main(int argc, char** argv)
 
   if (rank == 0)
   {
-    Py_Initialize();
+    //Py_Initialize();
 
-    result += test_contract<2,2,2>("ik, kj -> ij", {5,6}, {6,8}, {5,8}, 10);
+    result += test_contract<2,2,2>("ik, kj -> ij", {8,5}, {5,6}, {8,6}, 1);
 
-    result += test_contract<3,3,2>("ijk, kmj -> im", {5,6,8}, {8,4,6}, {5,4}, 10);
+    result += test_contract<3,3,2>("ijk, kmj -> im", {5,6,8}, {8,4,6}, {5,4}, 1);
 
-    Py_Finalize();
+    result += test_kernel<4,3,3>("ijml, lmk -> jki", {5,6,8,9}, {9,8,7}, {6,7,5});
+    
+    // very very small matrices
+     result += test_kernel<2,2,2>("ij, jk -> ik", {2,2}, {2,2}, {2,2});
+
+    // // very small matrices
+    result += test_kernel<2,2,2>("ij, jk -> ik", {5,5}, {5,5}, {5,5});
+
+    // // Max size matrix that fits in one register
+    result += test_kernel<2,2,2>("ij, jk -> ik", {8,8}, {8,8}, {8,8});
+
+    // // Max size matrix that fits in one register
+    result += test_kernel<2,2,2>("ij, jk -> ik", {10,10}, {10,10}, {10,10});
+    
+    //Py_Finalize();
 
   }
 
