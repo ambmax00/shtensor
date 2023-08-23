@@ -4,7 +4,8 @@ set(SOURCES
     MemoryPool.cpp
     Tensor.cpp
     ThreadBarrier.cpp
-    ThreadPool.cpp) 
+    ThreadPool.cpp
+    Timer.cpp) 
 
 add_library(shtensor ${SOURCES})
 

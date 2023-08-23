@@ -1,46 +1,46 @@
 #include <mpi.h>
 #include <Kernel.h>
 #include <Logger.h>
+#include <Timer.h>
 #include "TestUtils.h"
 
 #include <random>
 
-#define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
+//#define WITH_PYTHON
+#ifdef WITH_PYTHON
+  #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
+  #include <Python.h>
+  #include <numpy/arrayobject.h>
 
-#include <Python.h>
-#include <numpy/arrayobject.h>
-
-#define PYSHARED(expr) \
-  std::shared_ptr<PyObject> \
-
-template <class T>
-void fill_random(T* _pdata, int64_t _ssize)
-{
-  std::random_device rd;  // Will be used to obtain a seed for the random number engine
-  std::mt19937 gen(rd()); // Standard mersenne_twister_engine seeded with rd()
-  std::uniform_real_distribution<> dis(-1.0, 1.0);
-  std::generate(_pdata, _pdata+_ssize, [&](){ return dis(gen); });
-}
-
-template <class T, class SizeArray>
-void get_statistics(T* _pdata, const SizeArray& _sizes, T& _rms)
-{
-  const int nb_elements = Shtensor::Utils::product(_sizes);
-  const float square_sum = std::accumulate(_pdata, _pdata+nb_elements, T(), 
-                                            [](auto _sum, auto _val)
-                                            {
-                                              return (_sum + std::pow(_val,2));
-                                            });
-  _rms = std::sqrt(square_sum/nb_elements);
-}
-
-#define CHECK(object) \
+  #define CHECK(object) \
   if (!object)\
   {\
     PyErr_Print();\
     return false;\
   }
+#endif
 
+template <class Iterator>
+void fill_random(Iterator _pbegin, Iterator _pend)
+{
+  std::random_device rd;  // Will be used to obtain a seed for the random number engine
+  std::mt19937 gen(rd()); // Standard mersenne_twister_engine seeded with rd()
+  std::uniform_real_distribution<> dis(-1.0, 1.0);
+  std::generate(_pbegin, _pend, [&](){ return dis(gen); });
+}
+
+template <class Iterator>
+void get_statistics(Iterator _pbegin, Iterator _pend, typename Iterator::value_type& _rms)
+{
+  const float square_sum = std::accumulate(_pbegin, _pend, typename Iterator::value_type(), 
+                                            [](auto _sum, auto _val)
+                                            {
+                                              return (_sum + std::pow(_val,2));
+                                            });
+  _rms = std::sqrt(square_sum/int64_t(_pend-_pbegin));
+}
+
+#ifdef WITH_PYTHON
 template <class SizeArrayA, class SizeArrayB, class SizeArrayC>
 bool einsum_python(const std::string& _expr, 
                    float _alpha, 
@@ -113,6 +113,7 @@ bool einsum_python(const std::string& _expr,
   return true;
 
 }
+#endif
 
 template <int N, int M, int K>
 int test_contract(const std::string _expr, 
@@ -134,9 +135,9 @@ int test_contract(const std::string _expr,
   std::vector<float> data_c(_nb_cons*nb_elements_c,0);
   std::vector<float> result_c(_nb_cons*nb_elements_c,0);
 
-  fill_random<float>(data_a.data(), Shtensor::Utils::ssize(data_a));
-  fill_random<float>(data_b.data(), Shtensor::Utils::ssize(data_b));
-  fill_random<float>(data_c.data(), Shtensor::Utils::ssize(data_c));
+  fill_random(data_a.begin(), data_a.end());
+  fill_random(data_b.begin(), data_b.end());
+  fill_random(data_c.begin(), data_c.end());
 
   Shtensor::Kernel<float> kernel(_expr, _sizes_a, _sizes_b, _sizes_c, 1.0, 0.0, 
                                  Shtensor::KernelMethod::LAPACK);
@@ -144,41 +145,97 @@ int test_contract(const std::string _expr,
   fmt::print(kernel.get_info());
 
   std::copy(data_c.begin(), data_c.end(), result_c.begin());
-  kernel.call(data_a.data(), data_b.data(), result_c.data());
+  kernel.call(data_a.data(), data_b.data(), result_c.data(), _nb_cons);
 
   float lapack_rms = 0;
-  get_statistics(result_c.data(), _sizes_c, lapack_rms);
+  get_statistics(result_c.begin(), result_c.end(), lapack_rms);
 
-  fmt::print("RMS for LAPACK kernel is {}\n", lapack_rms);
-
-  fmt::print("C: {}", fmt::join(result_c.begin(), result_c.end(), ","));
+  // fmt::print("C: {}", fmt::join(result_c.begin(), result_c.end(), ","));
 
   Shtensor::Kernel<float> xmm_kernel(_expr, _sizes_a, _sizes_b, _sizes_c, 1.0, 0.0, 
                                      Shtensor::KernelMethod::XMM);
 
   std::copy(data_c.begin(), data_c.end(), result_c.begin());
-  xmm_kernel.call(data_a.data(), data_b.data(), result_c.data());
+  xmm_kernel.call(data_a.data(), data_b.data(), result_c.data(), _nb_cons);
 
-  fmt::print("A: [{}]\n", fmt::join(data_a.begin(), data_a.end(), ","));
-  fmt::print("B: [{}]\n", fmt::join(data_b.begin(), data_b.end(), ","));
-  fmt::print("C: [{}]\n", fmt::join(result_c.begin(), result_c.end(), ","));
+  float xmm_rms = 0;
+  get_statistics(result_c.begin(), result_c.end(), xmm_rms);
 
-  // if (!einsum_python(_expr, 1.0, data_a.data(), _sizes_a, data_b.data(), _sizes_b,
-  //                     0.0, data_c.data(), _sizes_c))
-  // {
-  //   printf("Python failed\n");
-  //   result += 1;
-  // }
+  // fmt::print("A: [{}]\n", fmt::join(data_a.begin(), data_a.end(), ","));
+  // fmt::print("B: [{}]\n", fmt::join(data_b.begin(), data_b.end(), ","));
+  // fmt::print("C: [{}]\n", fmt::join(result_c.begin(), result_c.end(), ","));
+
+#ifdef WITH_PYTHON
+  std::copy(data_c.begin(), data_c.end(), result_c.begin());
+  if (!einsum_python(_expr, 1.0, data_a.data(), _sizes_a, data_b.data(), _sizes_b,
+                      0.0, data_c.data(), _sizes_c))
+  {
+    printf("Python failed\n");
+    result += 1;
+  }
 
   float python_rms = 0;
-  get_statistics(result_c.data(), _sizes_c, python_rms);
+  get_statistics(result_c.begin(), result_c.end(), python_rms);
 
-  fmt::print("RMS for Python kernel is {}\n", python_rms);
+  // fmt::print("RMS for Python kernel is {}\n", python_rms);
 
   SHTENSOR_TEST_ALMOST_EQUAL(python_rms, lapack_rms, 1e-6, result);
+#endif
+
+  SHTENSOR_TEST_ALMOST_EQUAL(lapack_rms, xmm_rms, 1e-6, result);
 
   return result;
 }
+
+template <int N, int M, int K>
+int test_timings(const std::string _expr, 
+                 const std::array<int,N>& _sizes_a,
+                 const std::array<int,M>& _sizes_b,
+                 const std::array<int,K>& _sizes_c,
+                 int _nb_cons)
+{
+  int result = 0;
+
+  auto logger = Shtensor::Log::create("test_timings");
+
+  const int nb_elements_a = Shtensor::Utils::product(_sizes_a);
+  const int nb_elements_b = Shtensor::Utils::product(_sizes_b);
+  const int nb_elements_c = Shtensor::Utils::product(_sizes_c);
+
+  std::vector<float> data_a(_nb_cons*nb_elements_a, _nb_cons);
+  std::vector<float> data_b(_nb_cons*nb_elements_b, _nb_cons);
+  std::vector<float> data_c(_nb_cons*nb_elements_c, _nb_cons);
+  std::vector<float> result_c(_nb_cons*nb_elements_c, _nb_cons);
+
+  fill_random(data_a.begin(), data_a.end());
+  fill_random(data_b.begin(), data_b.end());
+  fill_random(data_c.begin(), data_c.end());
+
+  Shtensor::Kernel<float> kernel(_expr, _sizes_a, _sizes_b, _sizes_c, 1.0, 0.0, 
+                                 Shtensor::KernelMethod::LAPACK);
+
+  fmt::print(kernel.get_info());
+
+  std::copy(data_c.begin(), data_c.end(), result_c.begin());
+
+  Shtensor::Timer lapack_timer;
+  kernel.call(data_a.data(), data_b.data(), result_c.data(), _nb_cons);
+  const double lapack_time = lapack_timer.elapsed();
+
+  Shtensor::Kernel<float> xmm_kernel(_expr, _sizes_a, _sizes_b, _sizes_c, 1.0, 0.0, 
+                                     Shtensor::KernelMethod::XMM);
+
+  std::copy(data_c.begin(), data_c.end(), result_c.begin());
+
+  Shtensor::Timer xmm_timer;
+  xmm_kernel.call(data_a.data(), data_b.data(), result_c.data(), _nb_cons);
+  const double xmm_time = xmm_timer.elapsed();
+
+  fmt::print("Times: {}s, {}s", lapack_time, xmm_time);
+
+  return result;
+}
+
 
 template <int N, int M, int K>
 int test_kernel(const std::string _expr, 
@@ -198,23 +255,23 @@ int test_kernel(const std::string _expr,
   std::vector<float> data_b(nb_elements_b,0);
   std::vector<float> data_c(nb_elements_c,0);
 
-  fill_random<float>(data_a.data(), Shtensor::Utils::ssize(data_a));
-  fill_random<float>(data_b.data(), Shtensor::Utils::ssize(data_b));
-  fill_random<float>(data_c.data(), Shtensor::Utils::ssize(data_c));
+  fill_random(data_a.begin(), data_a.end());
+  fill_random(data_b.begin(), data_b.end());
+  fill_random(data_c.begin(), data_c.end());
 
   const float sum_c = std::accumulate(data_c.begin(), data_c.end(), 0.0);
 
-  fmt::print("A: [{}]\n", fmt::join(data_a.begin(), data_a.end(), ","));
-  fmt::print("B: [{}]\n", fmt::join(data_b.begin(), data_b.end(), ","));
-  fmt::print("C: [{}]\n", fmt::join(data_c.begin(), data_c.end(), ","));
+  // fmt::print("A: [{}]\n", fmt::join(data_a.begin(), data_a.end(), ","));
+  // fmt::print("B: [{}]\n", fmt::join(data_b.begin(), data_b.end(), ","));
+  // fmt::print("C: [{}]\n", fmt::join(data_c.begin(), data_c.end(), ","));
 
   const float beta = 2.0;
   Shtensor::Kernel<float> kernel(_expr, _sizes_a, _sizes_b, _sizes_c, 0.0, beta, 
                                  Shtensor::KernelMethod::XMM);
 
-  kernel.call(data_a.data(), data_b.data(), data_c.data());
+  kernel.call(data_a.data(), data_b.data(), data_c.data(), 1);
 
-  fmt::print("C: [{}]\n", fmt::join(data_c.begin(), data_c.end(), ","));
+  // fmt::print("C: [{}]\n", fmt::join(data_c.begin(), data_c.end(), ","));
 
   const float sum_c_after = std::accumulate(data_c.begin(), data_c.end(), 0.0);
 
@@ -239,11 +296,13 @@ int main(int argc, char** argv)
 
   if (rank == 0)
   {
-    //Py_Initialize();
+    #ifdef WITH_PYTHON
+    Py_Initialize();
+    #endif
 
-    result += test_contract<2,2,2>("ik, kj -> ij", {8,5}, {5,6}, {8,6}, 1);
+    result += test_contract<2,2,2>("ik, kj -> ij", {8,5}, {5,6}, {8,6}, 20);
 
-    result += test_contract<3,3,2>("ijk, kmj -> im", {5,6,8}, {8,4,6}, {5,4}, 1);
+    result += test_contract<3,3,2>("ijk, kmj -> im", {5,6,8}, {8,4,6}, {5,4}, 20);
 
     result += test_kernel<4,3,3>("ijml, lmk -> jki", {5,6,8,9}, {9,8,7}, {6,7,5});
     
@@ -258,8 +317,12 @@ int main(int argc, char** argv)
 
     // // Max size matrix that fits in one register
     result += test_kernel<2,2,2>("ij, jk -> ik", {10,10}, {10,10}, {10,10});
+
+    result += test_timings<3,3,2>("ikl, ljk -> ji", {8,8,8}, {8,8,8}, {8,8}, 1000);
     
-    //Py_Finalize();
+    #ifdef WITH_PYTHON
+    Py_Finalize();
+    #endif
 
   }
 

@@ -115,6 +115,10 @@ class KernelImpl
 
   asmjit::JitRuntime m_jit_runtime;
 
+  typedef int (*XmmFunc)(float*,float*,float*,int64_t);
+
+  XmmFunc m_xmm_fn_holder;
+
   Log::Logger m_logger;
   
 };
@@ -160,41 +164,49 @@ KernelFunctionSp KernelImpl::create_kernel_lapack_float32()
   float* p_buffer_c = p_buffer_b + size_b;
 
   // THREAD SAFETY FOR MUTABLE BUFFER???
-  auto func = [p_buffer_a,p_buffer_b,p_buffer_c,this](float* _a, float* _b, float* _c) -> int
+  auto func = [p_buffer_a,p_buffer_b,p_buffer_c,size_a,size_b,size_c,this]
+    (float* _a, float* _b, float* _c, int64_t _nb_ops) -> int
   {
     const std::vector<int> order_a = Utils::concat(m_info_in1.map_row,m_info_in1.map_col);
     const std::vector<int> order_b = Utils::concat(m_info_in2.map_row,m_info_in2.map_col);
     const std::vector<int> order_c = Utils::concat(m_info_out.map_row,m_info_out.map_col);
-  
-    Utils::reshape(_a, m_sizes_in1, order_a, p_buffer_a);
-    Utils::reshape(_b, m_sizes_in2, order_b, p_buffer_b);
-    Utils::reshape(_c, m_sizes_out, order_c, p_buffer_c);
 
-    const int m = Utils::ssize(m_info_in1.scatter_row);
-    const int n = Utils::ssize(m_info_in2.scatter_col);
-    const int k = Utils::ssize(m_info_in1.scatter_col);
-
-    const int lda = m;
-    const int ldb = k;
-    const int ldc = m;
-
-    const float alpha = std::any_cast<float>(m_alpha);
-    const float beta = std::any_cast<float>(m_beta);
-
-    LAPACK::sgemm('N','N',m,n,k,alpha,p_buffer_a,lda,p_buffer_b,ldb,beta,
-                  p_buffer_c,ldc);
-
-    // reorder C
-    std::vector<int> order_c_r(order_c.size());
-    std::vector<int> sizes_c_r(order_c.size());
-
-    for (int i = 0; i < Utils::ssize(order_c_r); ++i)
+    for (int64_t iop = 0; iop < _nb_ops; ++iop)
     {
-      order_c_r[order_c[i]] = i;
-      sizes_c_r[i] = m_sizes_out[order_c[i]];
-    }
+      float* pA = _a + iop*size_a;
+      float* pB = _b + iop*size_b;
+      float* pC = _c + iop*size_c;
 
-    Utils::reshape(p_buffer_c, sizes_c_r, order_c_r, _c);
+      Utils::reshape(pA, m_sizes_in1, order_a, p_buffer_a);
+      Utils::reshape(pB, m_sizes_in2, order_b, p_buffer_b);
+      Utils::reshape(pC, m_sizes_out, order_c, p_buffer_c);
+
+      const int m = Utils::ssize(m_info_in1.scatter_row);
+      const int n = Utils::ssize(m_info_in2.scatter_col);
+      const int k = Utils::ssize(m_info_in1.scatter_col);
+
+      const int lda = m;
+      const int ldb = k;
+      const int ldc = m;
+
+      const float alpha = std::any_cast<float>(m_alpha);
+      const float beta = std::any_cast<float>(m_beta);
+
+      LAPACK::sgemm('N','N',m,n,k,alpha,p_buffer_a,lda,p_buffer_b,ldb,beta,
+                    p_buffer_c,ldc);
+
+      // reorder C
+      std::vector<int> order_c_r(order_c.size());
+      std::vector<int> sizes_c_r(order_c.size());
+
+      for (int i = 0; i < Utils::ssize(order_c_r); ++i)
+      {
+        order_c_r[order_c[i]] = i;
+        sizes_c_r[i] = m_sizes_out[order_c[i]];
+      }
+
+      Utils::reshape(p_buffer_c, sizes_c_r, order_c_r, pC);
+    }
 
     return 0;
 
@@ -221,7 +233,7 @@ KernelFunctionDp KernelImpl::create_kernel_lapack_float64()
 
   // THREAD SAFETY FOR MUTABLE BUFFER???
   auto func = [p_buffer_a,p_buffer_b,p_buffer_c,this]
-              (double* _a, double* _b, double* _c) mutable -> int
+              (double* _a, double* _b, double* _c, int64_t _nb_ops) mutable -> int
   {
     const std::vector<int> order_a = Utils::concat(m_info_in1.map_row,m_info_in1.map_col);
     const std::vector<int> order_b = Utils::concat(m_info_in2.map_row,m_info_in2.map_col);
@@ -754,15 +766,19 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
   const int stack_c = (stack_offset -= 8);
 
   // N loop variable
-  const int stack_jloop = (stack_offset -= 4);
+  const int stack_jloop = (stack_offset -= 8);
   // M loop variable
-  const int stack_iloop = (stack_offset -= 4);
+  const int stack_iloop = (stack_offset -= 8);
   // K loop variable
-  const int stack_kloop = (stack_offset -= 4);
+  const int stack_kloop = (stack_offset -= 8);
 
   // alpha and beta
-  const int stack_alpha = (stack_offset -= 4);
-  const int stack_beta = (stack_offset -= 4);
+  const int stack_alpha = (stack_offset -= 8);
+  const int stack_beta = (stack_offset -= 8);
+
+  // macro loop
+  const int stack_oploop = (stack_offset -= 8);
+  const int stack_nbops = (stack_offset -= 8);
 
   // // Current position in (scatter) matrix A
   // const int stack_a_pos = (stack_offset -= 4);
@@ -870,6 +886,12 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
 
   // put stack pointer into rbp
   assembler.push(regs::rbp);
+  assembler.push(regs::rbx);
+  assembler.push(regs::r12);
+  assembler.push(regs::r13);
+  assembler.push(regs::r14);
+  assembler.push(regs::r15);
+
   assembler.mov(regs::rbp, regs::rsp);
 
   //assembler.sub(regs::rsp, Imm{stack_size});
@@ -897,6 +919,8 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
   assembler.vbroadcastss(ymm_beta, dword_ptr(regs::rax, 0));
   assembler.vbroadcastss(ymm_alpha, dword_ptr(regs::rsi, 0));
 
+  assembler.mov(qword_ptr(regs::rbp, stack_nbops), regs::rcx);
+
   // C kernel
     // Loop over n: i = 0 ---> n
       // Loop over m: j = 0 ---> m/vecsize * vecsize
@@ -913,6 +937,12 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
   // end KERNEL
 
   Log::debug(m_logger, "Address for scatter c: {}", (void*)scatter_idx_c.data());
+
+  // ======= LOOP OVER OPERATIONS ==============
+  assembler.mov(qword_ptr(regs::rbp, stack_oploop), 0);
+
+  Label oploop_label = assembler.newLabel();
+  assembler.bind(oploop_label);
 
   // ======= LOOP OVER COLUMNS J ==============  
 
@@ -1140,24 +1170,40 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
   assembler.cmp(dword_ptr(regs::rbp, stack_jloop), n);
   assembler.jl(jloop_label);
 
+  // ======== End loop over ops ===============
+
+  assembler.add(qword_ptr(regs::rbp, stack_a), m*k*sizeof(float));
+  assembler.add(qword_ptr(regs::rbp, stack_b), k*n*sizeof(float));
+  assembler.add(qword_ptr(regs::rbp, stack_c), m*n*sizeof(float));
+
+  assembler.inc(qword_ptr(regs::rbp, stack_oploop));
+  assembler.mov(regs::rax, qword_ptr(regs::rbp, stack_nbops));
+  assembler.cmp(qword_ptr(regs::rbp, stack_oploop), regs::rax);
+  assembler.jl(oploop_label);
+
   // return zero
   assembler.mov(regs::eax, 0);
 
+  assembler.pop(regs::r15);
+  assembler.pop(regs::r14);
+  assembler.pop(regs::r13);
+  assembler.pop(regs::r12);
+  assembler.pop(regs::rbx);
   assembler.pop(regs::rbp);
 
   assembler.ret();
-
-  // code
-  int (*fn)(float*,float*,float*);
                  
-  asmjit::Error err = m_jit_runtime.add(&fn, &code);   
+  asmjit::Error err = m_jit_runtime.add(&m_xmm_fn_holder, &code);   
   if (err) 
   {
     std::string err_msg = fmt::format("Failed to compile kernel: {}", err);
     throw std::runtime_error(err_msg);
   }
 
-  return KernelFunctionSp(fn);
+  return [this](float* _a, float* _b, float* _c, int64_t _nb_ops) 
+    { 
+      return this->m_xmm_fn_holder(_a, _b, _c, _nb_ops);
+    };
 
 }
 

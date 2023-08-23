@@ -18,9 +18,9 @@ namespace Shtensor
 // C(I,J) = A(I,K) B(K,J)
 // Where I,J,K are mapped indices
 
-using KernelFunctionSp = std::function<int(float*,float*,float*)>;
+using KernelFunctionSp = std::function<int(float*,float*,float*,int64_t)>;
 
-using KernelFunctionDp = std::function<int(double*,double*,double*)>;
+using KernelFunctionDp = std::function<int(double*,double*,double*,int64_t)>;
 
 enum class KernelMethod
 {
@@ -82,7 +82,7 @@ class Kernel : public KernelBase
 {
  public: 
 
-  using KernelFunctionT = std::function<int(T*,T*,T*)>;
+  using KernelFunctionT = std::function<int(T*,T*,T*,int64_t)>;
 
   template <class ArrayIn1, class ArrayIn2, class ArrayOut>
   explicit Kernel(const std::string _expr, 
@@ -104,11 +104,9 @@ class Kernel : public KernelBase
   {
   }
 
-  inline void call(T* _a, T* _b, T* _c)
+  inline void call(T* _a, T* _b, T* _c, int64_t _nb_ops)
   {
-    fmt::print("A: {:p} B: {:p} C_ {:p}\n", (void*)_a, (void*)_b, (void*)_c);
-    int res = m_kernel_function(_a,_b,_c);
-    fmt::print("Result is {}\n", res);
+    int res = m_kernel_function(_a,_b,_c,_nb_ops);
   }
 
  private:
