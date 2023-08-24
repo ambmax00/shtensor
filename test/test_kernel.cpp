@@ -231,7 +231,7 @@ int test_timings(const std::string _expr,
   xmm_kernel.call(data_a.data(), data_b.data(), result_c.data(), _nb_cons);
   const double xmm_time = xmm_timer.elapsed();
 
-  fmt::print("Times: {}s, {}s", lapack_time, xmm_time);
+  fmt::print("Times: {}s, {}s", lapack_time/_nb_cons, xmm_time/_nb_cons);
 
   return result;
 }
@@ -309,16 +309,16 @@ int main(int argc, char** argv)
     // very very small matrices
      result += test_kernel<2,2,2>("ij, jk -> ik", {2,2}, {2,2}, {2,2});
 
-    // // very small matrices
+    // very small matrices
     result += test_kernel<2,2,2>("ij, jk -> ik", {5,5}, {5,5}, {5,5});
 
-    // // Max size matrix that fits in one register
+    // Max size matrix that fits in one register
     result += test_kernel<2,2,2>("ij, jk -> ik", {8,8}, {8,8}, {8,8});
 
-    // // Max size matrix that fits in one register
+    // Max size matrix that fits in one register
     result += test_kernel<2,2,2>("ij, jk -> ik", {10,10}, {10,10}, {10,10});
 
-    result += test_timings<3,3,2>("ikl, ljk -> ji", {8,8,8}, {8,8,8}, {8,8}, 1000);
+    result += test_timings<3,3,2>("ikl, ljk -> ji", {8,8,8}, {8,8,8}, {8,8}, 100000);
     
     #ifdef WITH_PYTHON
     Py_Finalize();
