@@ -299,6 +299,26 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
   const int n = Utils::ssize(m_info_in2.scatter_col);
   const int k = Utils::ssize(m_info_in1.scatter_col);
 
+  // check if m is contiguous
+  auto is_contig = [](const auto& _map) -> bool
+  {
+    auto row_info = _map;
+    auto row_info_sorted = row_info;
+    std::sort(row_info_sorted.begin(), row_info_sorted.end());
+
+    return row_info == row_info_sorted 
+      && row_info.front() == 0 
+      && row_info.back() == Utils::ssize(row_info)-1;
+  };
+
+  const auto arow_contig = is_contig(m_info_in1.map_row);
+
+  const auto crow_contig = is_contig(m_info_out.map_row);
+
+  DEBUG_VAR(m_logger, arow_contig);
+
+  DEBUG_VAR(m_logger, crow_contig);
+
   const float alpha = std::any_cast<float>(m_alpha);
   const float beta = std::any_cast<float>(m_beta);
 
@@ -413,9 +433,13 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
   std::generate(vymm_a.begin(), vymm_a.end(), fetch_reg);
   //Ymm ymm_a = fetch_reg();
 
-  Ymm ymm_tmp = fetch_reg();
+  Ymm ymm_tmp0 = fetch_reg();
+
+  Ymm ymm_tmp1 = fetch_reg();
 
   Ymm ymm_mask = fetch_reg();
+
+  Ymm ymm_b = fetch_reg();
 
   // register for beta
   Ymm ymm_beta = fetch_reg();
@@ -531,6 +555,10 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
 
   assembler.mov(qword_ptr(regs::rbp, stack_nbops), regs::rcx);
 
+  // load mask
+  assembler.mov(regs::rax, mask_values.data());
+  assembler.vmovdqu(ymm_mask, ymmword_ptr(regs::rax));
+
   // C kernel
     // Loop over n: i = 0 ---> n
       // Loop over m: j = 0 ---> m/vecsize * vecsize
@@ -583,13 +611,12 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
     // move mask to register
     if (loop_type == LOOP_EPI) 
     { 
-      assembler.mov(regs::rax, mask_values.data());
-      assembler.vmovdqu(ymm_mask, ymmword_ptr(regs::rax));
+      assembler.vmovdqu(ymm_tmp1, ymm_mask);
     }
     else 
     {
       // set all bits to 1
-      assembler.vpcmpeqd(ymm_mask, ymm_mask, ymm_mask);
+      assembler.vpcmpeqd(ymm_tmp1, ymm_tmp1, ymm_tmp1);
     }
 
     // Load chunk C(MREG,j)
@@ -602,23 +629,40 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
       assembler.add(regs::eax, regs::ebx);
       assembler.cdqe(regs::eax);
 
-      assembler.mov(regs::rbx, (void*)scatter_idx_c.data());
-
-      // get address to scatter index
-      assembler.lea(regs::rax, Mem{regs::rbx, regs::rax, 2, 0});
-
-      // move scatter indices into ymm
-      if (loop_type == LOOP_MAIN)
+      if (!crow_contig)
       {
-        assembler.vmovdqu(ymm_tmp, ymmword_ptr(regs::rax));
-      }
-      else 
-      {
-        assembler.vmaskmovps(ymm_tmp, ymm_mask, ymmword_ptr(regs::rax));
-      }
+        assembler.mov(regs::rbx, (void*)scatter_idx_c.data());
 
-      // load C register using scatter indices
-      assembler.vgatherdps(ymm_c, Mem{reg_addr_c, ymm_tmp, 2, 0}, ymm_mask);
+        // get address to scatter index
+        assembler.lea(regs::rax, Mem{regs::rbx, regs::rax, 2, 0});
+
+        // move scatter indices into ymm
+        if (loop_type == LOOP_MAIN)
+        {
+          assembler.vmovdqu(ymm_tmp0, ymmword_ptr(regs::rax));
+        }
+        else 
+        {
+          assembler.vmaskmovps(ymm_tmp0, ymm_tmp1, ymmword_ptr(regs::rax));
+        }
+
+        // load C register using scatter indices
+        assembler.vgatherdps(ymm_c, Mem{reg_addr_c, ymm_tmp0, 2, 0}, ymm_tmp1);
+      }
+      else
+      {
+        // get address to C
+        assembler.lea(regs::rax, Mem{reg_addr_c, regs::rax, 2, 0});
+
+        if (loop_type == LOOP_MAIN)
+        {
+          assembler.vmovdqu(ymm_c, ymmword_ptr(regs::rax));
+        }
+        else 
+        {
+          assembler.vmaskmovps(ymm_c, ymm_tmp1, ymmword_ptr(regs::rax));
+        }
+      }
     
       // C *= beta
       assembler.vmulps(ymm_c, ymm_c, ymm_beta);
@@ -653,10 +697,17 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
       assembler.add(regs::eax, regs::edx);
       assembler.cdqe(regs::eax);  
 
-      assembler.mov(regs::rdx, (void*)scatter_idx_a.data());
-
-      // get address to scatter index
-      assembler.lea(regs::rax, Mem{regs::rdx, regs::rax, 2, 0});
+      if (!arow_contig)
+      {
+        // get address to scatter index
+        assembler.mov(regs::rdx, (void*)scatter_idx_a.data());
+        assembler.lea(regs::rax, Mem{regs::rdx, regs::rax, 2, 0});
+      }
+      else
+      {
+        // get address to a
+        assembler.lea(regs::rax, Mem{reg_addr_a, regs::rax, 2, 0});
+      }
 
       // k + j*K => ebx
       assembler.mov(regs::ebx, Mem{regs::rbp, stack_jloop});
@@ -674,33 +725,50 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
       const int nb_kreg = (kloop_type == LOOP_MAIN) ? k_block_size : k_epiloop;
       for (int kreg = 0; kreg < nb_kreg; ++kreg)
       {
-        // move scatter indices into ymm (i + k*m + kreg*m)
-        if (loop_type == LOOP_MAIN)
-        {
-          assembler.vmovdqu(ymm_tmp, ymmword_ptr(regs::rax,kreg*m*sizeof(int)));
-          assembler.vpcmpeqd(ymm_mask, ymm_mask, ymm_mask);
-        }
-        else 
-        {
-          assembler.mov(regs::rsi, mask_values.data());
-          assembler.vmovdqu(ymm_mask, ymmword_ptr(regs::rsi));
-          assembler.vmaskmovps(ymm_tmp, ymm_mask, ymmword_ptr(regs::rax,kreg*m*sizeof(int)));
-        }
-
         // load scatter index for b (k + kreg + j*K)
         assembler.mov(regs::edi, dword_ptr(regs::rbx, kreg*sizeof(int)));
 
-        // load A register using scatter indices
-        assembler.vgatherdps(vymm_a[kreg], Mem{reg_addr_a, ymm_tmp, 2, 0}, ymm_mask);
+        if (!arow_contig)
+        {
+          // move scatter indices into ymm (i + k*m + kreg*m)
+          if (loop_type == LOOP_MAIN)
+          {
+            assembler.vmovdqu(ymm_tmp0, ymmword_ptr(regs::rax,kreg*m*sizeof(int)));
+            assembler.vpcmpeqd(ymm_tmp1, ymm_tmp1, ymm_tmp1);
+          }
+          else 
+          {
+            assembler.vmovdqu(ymm_tmp1, ymm_mask);
+            assembler.vmaskmovps(ymm_tmp0, ymm_mask, ymmword_ptr(regs::rax,kreg*m*sizeof(int)));
+          }
+
+          // load A register using scatter indices
+          assembler.vgatherdps(vymm_a[kreg], Mem{reg_addr_a, ymm_tmp0, 2, 0}, ymm_tmp1);
+
+        }
+        else 
+        {
+
+          if (loop_type == LOOP_MAIN)
+          {
+            assembler.vmovdqu(vymm_a[kreg], ymmword_ptr(regs::rax, kreg*m*sizeof(int)));
+          }
+          else 
+          {
+            assembler.vmovdqu(ymm_tmp1, ymm_mask);
+            assembler.vmaskmovps(vymm_a[kreg], ymm_tmp1, ymmword_ptr(regs::rax,kreg*m*sizeof(int)));
+          }
+
+        }        
 
         // broadcast value of b to whole vector
-        assembler.vbroadcastss(ymm_tmp, dword_ptr(reg_addr_b, regs::edi, 2));
+        assembler.vbroadcastss(ymm_b, dword_ptr(reg_addr_b, regs::edi, 2));
 
         // mult by alpha
         assembler.vmulps(vymm_a[kreg], vymm_a[kreg], ymm_alpha);
 
         // C += A*B
-        assembler.vfmadd231ps(ymm_c, vymm_a[kreg], ymm_tmp);
+        assembler.vfmadd231ps(ymm_c, vymm_a[kreg], ymm_b);
       
       }
 
@@ -723,45 +791,65 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
     assembler.add(regs::eax, regs::edx);
     assembler.cdqe();
 
-    assembler.mov(regs::rdx, (void*)scatter_idx_c.data());
+    if (!crow_contig)
+    {
+      assembler.mov(regs::rdx, (void*)scatter_idx_c.data());
 
-    // get address to scatter index
-    assembler.lea(regs::rax, Mem{regs::rdx, regs::rax, 2, 0});
+      // get address to scatter index
+      assembler.lea(regs::rax, Mem{regs::rdx, regs::rax, 2, 0});
 
-    // Store elements in ymm to C
-    const int reg_size = (loop_type == LOOP_MAIN) ? nb_floats_reg : m_epiloop;
+      // Store elements in ymm to C
+      const int reg_size = (loop_type == LOOP_MAIN) ? nb_floats_reg : m_epiloop;
 
-    for (int f = 0; f < reg_size; ++f)
-    { 
-      const int f_half = f % (nb_floats_reg/2);
+      for (int f = 0; f < reg_size; ++f)
+      { 
+        const int f_half = f % (nb_floats_reg/2);
 
-      auto xmm_c = ymm_c.half();
+        auto xmm_c = ymm_c.half();
 
-      // load scatter index (i,j)+f
-      assembler.mov(regs::edx, dword_ptr(regs::rax, f*SSIZEOF(int)));
-      assembler.cdqe(regs::edx);
+        // load scatter index (i,j)+f
+        assembler.mov(regs::edx, dword_ptr(regs::rax, f*SSIZEOF(int)));
+        assembler.cdqe(regs::edx);
 
-      // compute address to C element 
-      assembler.lea(regs::rdx, Mem{reg_addr_c, regs::rdx, 2, 0});
+        // compute address to C element 
+        assembler.lea(regs::rdx, Mem{reg_addr_c, regs::rdx, 2, 0});
 
-      if (f_half != 0)
-      {
-        // shift values in register to the right
-        assembler.vpalignr(ymm_tmp, xmm_c, xmm_c, Imm{f_half*sizeof(float)});
-        assembler.vmovss(dword_ptr(regs::rdx), ymm_tmp.half());
+        if (f_half != 0)
+        {
+          // shift values in register to the right
+          assembler.vpalignr(ymm_tmp0, xmm_c, xmm_c, Imm{f_half*sizeof(float)});
+          assembler.vmovss(dword_ptr(regs::rdx), ymm_tmp0.half());
+        }
+        else 
+        {
+          // zero offset, so just move directly
+          assembler.vmovss(dword_ptr(regs::rdx), xmm_c);
+        }      
+
+        // move higher part to lower part for extraction
+        if (f == 3)
+        {
+          assembler.vextractf128(xmm_c, ymm_c, 1);
+        }
+      }
+    }
+    else 
+    {
+      // get address to c array
+      assembler.lea(regs::rax, Mem{reg_addr_c, regs::rax, 2, 0});
+
+      if (loop_type == LOOP_EPI) 
+      { 
+        assembler.mov(regs::rbx, mask_values.data());
+        assembler.vmovdqu(ymm_mask, ymmword_ptr(regs::rbx));
+        assembler.vmaskmovps(ymmword_ptr(regs::rax), ymm_mask, ymm_c);
       }
       else 
       {
-        // zero offset, so just move directly
-        assembler.vmovss(dword_ptr(regs::rdx), xmm_c);
-      }      
-
-      // move higher part to lower part for extraction
-      if (f == 3)
-      {
-        assembler.vextractf128(xmm_c, ymm_c, 1);
+        assembler.vmovdqu(ymmword_ptr(regs::rax), ymm_c);
       }
-    }
+
+    } // endif crow_contig
 
     if (loop_type == LOOP_MAIN)
     {

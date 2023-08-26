@@ -302,7 +302,7 @@ int main(int argc, char** argv)
 
     result += test_contract<2,2,2>("ik, kj -> ij", {8,5}, {5,6}, {8,6}, 20);
 
-    result += test_contract<3,3,2>("ijk, kmj -> im", {5,6,8}, {8,4,6}, {5,4}, 20);
+    result += test_contract<3,3,2>("jik, kmj -> im", {6,5,8}, {8,4,6}, {5,4}, 20);
 
     result += test_kernel<4,3,3>("ijml, lmk -> jki", {5,6,8,9}, {9,8,7}, {6,7,5});
     
@@ -318,7 +318,15 @@ int main(int argc, char** argv)
     // Max size matrix that fits in one register
     result += test_kernel<2,2,2>("ij, jk -> ik", {10,10}, {10,10}, {10,10});
 
-    result += test_timings<3,3,2>("ikl, ljk -> ji", {8,8,8}, {8,8,8}, {8,8}, 100000);
+    result += test_timings<3,3,2>("ikl, ljk -> ij", {8,8,8}, {8,8,8}, {8,8}, 100000);
+
+    result += test_timings<3,3,2>("kil, ljk -> ij", {8,8,8}, {8,8,8}, {8,8}, 100000);
+
+    result += test_timings<3,3,2>("ikl, ljk -> ji", {5,5,5}, {5,5,5}, {5,5}, 100000);
+
+    result += test_timings<2,2,2>("ik, kj -> ij", {8,8}, {8,8}, {8,8}, 100000);
+
+    result += test_timings<2,2,2>("ik, kj -> ij", {16,16}, {16,16}, {16,16}, 100000);
     
     #ifdef WITH_PYTHON
     Py_Finalize();
