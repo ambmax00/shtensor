@@ -1,20 +1,12 @@
-set(SOURCES 
-    Context.cpp 
-    Kernel.cpp
-    MemoryPool.cpp
-    Tensor.cpp
-    ThreadBarrier.cpp
-    ThreadPool.cpp
-    Timer.cpp) 
+add_subdirectory(Basics)
+add_subdirectory(Kernel)
+add_subdirectory(Shmem)
+add_subdirectory(Tensor)
 
-add_library(shtensor ${SOURCES})
-
-# mark asmjit include headers system to supress warnings
-get_target_property(lib_include_dirs asmjit::asmjit INTERFACE_INCLUDE_DIRECTORIES)
-target_include_directories(shtensor SYSTEM PRIVATE ${lib_include_dirs})
-
+add_library(shtensor INTERFACE)
 target_link_libraries(shtensor 
-                      MPI::MPI_CXX 
-                      fmt::fmt 
-                      asmjit::asmjit
-                      ${BLAS_LIBRARIES})
+                      INTERFACE 
+                      shtensor_basics
+                      shtensor_kernel
+                      shtensor_shmem
+                      shtensor_tensor)

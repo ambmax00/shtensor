@@ -17,11 +17,17 @@ include(FetchContent)
 #                       PROPERTIES INTERFACE_INCLUDE_DIRECTORIES ${SHTENSOR_FMT_INCLUDE_DIR})
 
 FetchContent_Declare(fmt
+                     SYSTEM
                      GIT_REPOSITORY https://github.com/fmtlib/fmt.git 
 )
 
 FetchContent_Declare(asmjit
+                     SYSTEM
                      GIT_REPOSITORY https://github.com/asmjit/asmjit.git)
 
 FetchContent_MakeAvailable(fmt)
 FetchContent_MakeAvailable(asmjit)
+
+add_library(lapack_cpp INTERFACE)
+target_include_directories(lapack_cpp INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(lapack_cpp INTERFACE ${BLAS_LIBRARIES})
