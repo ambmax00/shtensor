@@ -18,36 +18,17 @@ namespace Shtensor
 // C(I,J) = A(I,K) B(K,J)
 // Where I,J,K are mapped indices
 
-using KernelFunctionSp = std::function<int(float*,float*,float*,int64_t)>;
-
-using KernelFunctionDp = std::function<int(double*,double*,double*,int64_t)>;
-
-enum class KernelMethod
-{
-  INVALID = 0x000000,
-  LAPACK = 0x000001,
-  XMM = 0x000002
-};
-
-enum class KernelType
-{
-  INVALID = 0x000000,
-  FLOAT32 = 0x000100,
-  FLOAT64 = 0x000200
-};
-
 template <typename T>
-static constexpr inline KernelType kernel_type()
+static constexpr inline FloatType kernel_type()
 {
   if constexpr (std::is_same<float,T>::value)
   {
-    return KernelType::FLOAT32;
+    return FloatType::FLOAT32;
   }
   if constexpr (std::is_same<double,T>::value)
   {
-    return KernelType::FLOAT64;
+    return FloatType::FLOAT64;
   }
-  return KernelType::INVALID; 
 }
 
 class KernelImpl;
@@ -62,8 +43,8 @@ class KernelBase
                       const std::vector<int>& _sizes_out,
                       std::any _alpha, 
                       std::any _beta,
-                      KernelType _kernel_type,
-                      KernelMethod _kernel_method);
+                      FloatType _float_type,
+                      KernelType _kernel_type);
 
   std::any get_kernel_function();
 
@@ -91,7 +72,7 @@ class Kernel : public KernelBase
                   const ArrayOut& _sizes_out,
                   T _alpha, 
                   T _beta,
-                  KernelMethod _kernel_method)
+                  KernelType _kernel_type)
     : KernelBase(_expr, 
                  std::vector<int>(_sizes_in1.begin(), _sizes_in1.end()), 
                  std::vector<int>(_sizes_in2.begin(), _sizes_in2.end()), 
@@ -99,7 +80,7 @@ class Kernel : public KernelBase
                  _alpha, 
                  _beta, 
                  kernel_type<T>(),
-                 _kernel_method)
+                 _kernel_type)
     , m_kernel_function(std::any_cast<KernelFunctionT>(get_kernel_function()))
   {
   }

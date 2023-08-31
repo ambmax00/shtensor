@@ -5,10 +5,12 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <functional>
 #include <limits>
 #include <numeric>
 #include <set>
+#include <string>
 #include <vector>
 
 namespace Shtensor

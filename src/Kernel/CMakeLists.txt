@@ -1,5 +1,7 @@
 set(SOURCES 
-    Kernel.cpp) 
+    AvxHelper.cpp
+    Kernel.cpp
+    KernelImpl.cpp) 
 
 add_library(shtensor_kernel ${SOURCES})
 

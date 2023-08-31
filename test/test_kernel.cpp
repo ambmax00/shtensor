@@ -140,7 +140,7 @@ int test_contract(const std::string _expr,
   fill_random(data_c.begin(), data_c.end());
 
   Shtensor::Kernel<float> kernel(_expr, _sizes_a, _sizes_b, _sizes_c, 1.0, 0.0, 
-                                 Shtensor::KernelMethod::LAPACK);
+                                 Shtensor::KernelType::LAPACK);
 
   fmt::print(kernel.get_info());
 
@@ -153,7 +153,7 @@ int test_contract(const std::string _expr,
   // fmt::print("C: {}", fmt::join(result_c.begin(), result_c.end(), ","));
 
   Shtensor::Kernel<float> xmm_kernel(_expr, _sizes_a, _sizes_b, _sizes_c, 1.0, 0.0, 
-                                     Shtensor::KernelMethod::XMM);
+                                     Shtensor::KernelType::XMM);
 
   std::copy(data_c.begin(), data_c.end(), result_c.begin());
   xmm_kernel.call(data_a.data(), data_b.data(), result_c.data(), _nb_cons);
@@ -212,7 +212,7 @@ int test_timings(const std::string _expr,
   fill_random(data_c.begin(), data_c.end());
 
   Shtensor::Kernel<float> kernel(_expr, _sizes_a, _sizes_b, _sizes_c, 1.0, 0.0, 
-                                 Shtensor::KernelMethod::LAPACK);
+                                 Shtensor::KernelType::LAPACK);
 
   fmt::print(kernel.get_info());
 
@@ -223,7 +223,7 @@ int test_timings(const std::string _expr,
   const double lapack_time = lapack_timer.elapsed();
 
   Shtensor::Kernel<float> xmm_kernel(_expr, _sizes_a, _sizes_b, _sizes_c, 1.0, 0.0, 
-                                     Shtensor::KernelMethod::XMM);
+                                     Shtensor::KernelType::XMM);
 
   std::copy(data_c.begin(), data_c.end(), result_c.begin());
 
@@ -247,6 +247,8 @@ int test_kernel(const std::string _expr,
 
   auto logger = Shtensor::Log::create("test_xmm");
 
+  Shtensor::Log::info(logger, "Starting test_kernel: {}", _expr);
+
   const int nb_elements_a = Shtensor::Utils::product(_sizes_a);
   const int nb_elements_b = Shtensor::Utils::product(_sizes_b);
   const int nb_elements_c = Shtensor::Utils::product(_sizes_c);
@@ -267,7 +269,7 @@ int test_kernel(const std::string _expr,
 
   const float beta = 2.0;
   Shtensor::Kernel<float> kernel(_expr, _sizes_a, _sizes_b, _sizes_c, 0.0, beta, 
-                                 Shtensor::KernelMethod::XMM);
+                                 Shtensor::KernelType::XMM);
 
   kernel.call(data_a.data(), data_b.data(), data_c.data(), 1);
 
@@ -304,6 +306,8 @@ int main(int argc, char** argv)
 
     result += test_contract<3,3,2>("jik, kmj -> im", {6,5,8}, {8,4,6}, {5,4}, 20);
 
+    result += test_contract<3,4,3>("ikl, lkmj -> mij", {6,5,7}, {7,5,6,6}, {6,6,6}, 20);
+
     result += test_kernel<4,3,3>("ijml, lmk -> jki", {5,6,8,9}, {9,8,7}, {6,7,5});
     
     // very very small matrices
@@ -318,15 +322,15 @@ int main(int argc, char** argv)
     // Max size matrix that fits in one register
     result += test_kernel<2,2,2>("ij, jk -> ik", {10,10}, {10,10}, {10,10});
 
-    result += test_timings<3,3,2>("ikl, ljk -> ij", {8,8,8}, {8,8,8}, {8,8}, 100000);
+    // result += test_timings<3,3,2>("ikl, ljk -> ij", {8,8,8}, {8,8,8}, {8,8}, 100000);
 
-    result += test_timings<3,3,2>("kil, ljk -> ij", {8,8,8}, {8,8,8}, {8,8}, 100000);
+    // result += test_timings<3,3,2>("kil, ljk -> ij", {8,8,8}, {8,8,8}, {8,8}, 100000);
 
-    result += test_timings<3,3,2>("ikl, ljk -> ji", {5,5,5}, {5,5,5}, {5,5}, 100000);
+    // result += test_timings<3,3,2>("ikl, ljk -> ji", {5,5,5}, {5,5,5}, {5,5}, 100000);
 
-    result += test_timings<2,2,2>("ik, kj -> ij", {8,8}, {8,8}, {8,8}, 100000);
+    // result += test_timings<2,2,2>("ik, kj -> ij", {8,8}, {8,8}, {8,8}, 100000);
 
-    result += test_timings<2,2,2>("ik, kj -> ij", {16,16}, {16,16}, {16,16}, 100000);
+    // result += test_timings<2,2,2>("ik, kj -> ij", {16,16}, {16,16}, {16,16}, 100000);
     
     #ifdef WITH_PYTHON
     Py_Finalize();
