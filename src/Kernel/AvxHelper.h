@@ -19,6 +19,8 @@ class AvxHelper
 
   using Ymm = decltype(asmjit::x86::regs::ymm0);
 
+  using Mem = asmjit::x86::Mem;
+
   enum Type
   {
     AVX2 = 0
@@ -45,11 +47,22 @@ class AvxHelper
                    uint32_t _vecidx_mask, 
                    uint32_t _vecidx_indices);
 
+  void store_tensor(bool _is_epilogue,
+                    bool _contiguous,
+                    regdw _reg_addr_tensor,
+                    regdw _reg_index,
+                    uint32_t _vecidx_mask_tmp,
+                    uint32_t _vecidx_indices,
+                    uint32_t _vecidx_tensor,
+                    int _mask_size);
+
   void mul(uint32_t _vecidx_result, uint32_t _vecidx_a, uint32_t vecidx_b);
 
-  void broadcast(uint32_t _vecidx, regdw _reg_addr_tensor, regw _reg_offset);
+  void broadcast(uint32_t _vecidx, Mem _mem);
 
   void fmadd(uint32_t _vecidx_result, uint32_t _vecidx_a, uint32_t _vecidx_b);
+
+  void zero(uint32_t _vecid);
 
  private:
 
@@ -74,9 +87,22 @@ class AvxHelper
                                regdw _reg_index,
                                uint32_t _vecidx_mask);
 
+  void store_tensor_avx2_noncontig(bool _is_epilogue,
+                                   regdw _reg_addr_tensor,
+                                   uint32_t _vecidx_tmp,
+                                   uint32_t _vecidx_indices,
+                                   uint32_t _vecidx_tensor,
+                                   int _mask_size);
+  
+  void store_tensor_avx2_contig(bool _is_epilogue,
+                                regdw _reg_addr_tensor,
+                                regdw _reg_index,
+                                uint32_t _vecidx_mask,
+                                uint32_t _vecidx_tensor);
+
   void mul_avx2(uint32_t _vecidx_result, uint32_t _vecidx_a, uint32_t _vecidx_b);
 
-  void broadcast_avx2(uint32_t _vecidx, regdw _reg_addr_tensor, regw _reg_offset);
+  void broadcast_avx2(uint32_t _vecidx, Mem _mem);
 
   void fmadd_avx2(uint32_t _vecidx_result, uint32_t _vecidx_a, uint32_t _vecidx_b);
 

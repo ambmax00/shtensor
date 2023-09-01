@@ -365,14 +365,10 @@ constexpr bool is_valid_float_type()
 template <class T>
 constexpr typename std::enable_if<is_valid_float_type<T>(),bool>::type bit_equal(T _a, T _b)
 {
-  if (sizeof(T) == 4)
-  {
-    return ((*reinterpret_cast<int32_t*>(&_a)) == (*reinterpret_cast<int32_t*>(&_b)));
-  }
-  if (sizeof(T) == 8)
-  {
-    return ((*reinterpret_cast<int64_t*>(&_a)) == (*reinterpret_cast<int64_t*>(&_b)));
-  }
+  const uint8_t* pa = reinterpret_cast<uint8_t*>(&_a);
+  const uint8_t* pb = reinterpret_cast<uint8_t*>(&_b);
+
+  return std::equal(pa, pa+sizeof(T), pb);
 }
 
 template <class T>

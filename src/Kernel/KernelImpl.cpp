@@ -248,7 +248,7 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
     throw std::runtime_error("CPU does not have AVX2 capabilities");
   }
 
-  // ymm register size
+  // register size
   const int regSizeByte = 32;
 
   // how many units in a register?
@@ -337,37 +337,36 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
 
   // organize registers
 
-  int regID = 16;
+  uint32_t regID = 0;
   auto fetch_reg = [&regID]()
   {
-    regID--;
-    if (regID < 0)
+    regID++;
+    if (regID >= 16)
     {
-      throw std::runtime_error("No ymm registers available");
+      throw std::runtime_error("No vector registers available");
     }
-    return Ymm(regID);
+    return regID;
   };
 
   // registers to hold block C_Ij
-  Ymm ymm_c = fetch_reg(); 
+  uint32_t vecid_c = fetch_reg(); 
 
   // registers to hold block A_IK
-  std::vector<Ymm> vymm_a(k_block_size,Ymm(0));
-  std::generate(vymm_a.begin(), vymm_a.end(), fetch_reg);
-  //Ymm ymm_a = fetch_reg();
+  uint32_t vecid_a = fetch_reg();
 
-  Ymm ymm_tmp0 = fetch_reg();
+  uint32_t vecid_tmp0 = fetch_reg();
 
-  Ymm ymm_tmp1 = fetch_reg();
+  uint32_t vecid_tmp1 = fetch_reg();
 
-  Ymm ymm_mask = fetch_reg();
+  uint32_t vecid_mask = fetch_reg();
 
-  Ymm ymm_b = fetch_reg();
+  uint32_t vecid_idx = fetch_reg();
 
-  // register for beta
-  Ymm ymm_beta = fetch_reg();
+  uint32_t vecid_b = fetch_reg();
 
-  Ymm ymm_alpha = fetch_reg();
+  uint32_t vecid_beta = fetch_reg();
+
+  uint32_t vecid_alpha = fetch_reg();
 
   // ======== PRECOMPUTE OFFSETS IN MEMORY ===========
 
@@ -472,15 +471,15 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
   // load alpha and beta
   assembler.mov(regs::rax, (void*)p_beta);
   assembler.mov(regs::rsi, (void*)p_alpha);
-  
-  assembler.vbroadcastss(ymm_beta, dword_ptr(regs::rax, 0));
-  assembler.vbroadcastss(ymm_alpha, dword_ptr(regs::rsi, 0));
 
+  helper.broadcast(vecid_beta, Mem{regs::rax, 0});
+  helper.broadcast(vecid_alpha, Mem{regs::rsi, 0});
+  
   assembler.mov(qword_ptr(regs::rbp, stack_nbops), regs::rcx);
 
   // load mask
   assembler.mov(regs::rax, mask_values.data());
-  helper.load_mask(ymm_mask.id(), regs::rax);
+  helper.load_mask(vecid_mask, regs::rax);
 
   // C kernel
     // Loop over n: i = 0 ---> n
@@ -535,7 +534,7 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
     }
 
     // move mask to register
-    helper.copy_mask(ymm_tmp1.id(), (loop_type == LOOP_EPI), ymm_mask.id());
+    helper.copy_mask(vecid_tmp1, (loop_type == LOOP_EPI), vecid_mask);
 
     // helper.load_mask(0, 1);
 
@@ -552,19 +551,19 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
       assembler.mov(regs::rbx, (void*)scatter_idx_c.data());
 
       // load indices into tmp1
-      helper.load_indices(ymm_tmp0.id(), i_is_epilogue, crow_contig, regs::rbx, regs::rax, ymm_tmp1.id());
+      helper.load_indices(vecid_idx, i_is_epilogue, crow_contig, regs::rbx, regs::rax, vecid_tmp1);
 
       // load tensor using indices and mask
-      helper.load_tensor(ymm_c.id(), i_is_epilogue, crow_contig, reg_addr_c, regs::rax, ymm_tmp1.id(), ymm_tmp0.id());
+      helper.load_tensor(vecid_c, i_is_epilogue, crow_contig, reg_addr_c, regs::rax, vecid_tmp1, vecid_idx);
 
       // C *= beta
-      helper.mul(ymm_c.id(), ymm_c.id(), ymm_beta.id());
+      helper.mul(vecid_c, vecid_c, vecid_beta);
 
     }
     else 
     {
       // beta is zero, so just zero out the registers
-      assembler.vpxor(ymm_c, ymm_c, ymm_c);
+      helper.zero(vecid_c);
     }
 
     // Loop over k
@@ -624,20 +623,20 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
         // load scatter index for b (k + kreg + j*K)
         assembler.mov(regs::edi, dword_ptr(regs::rbx, kreg*sizeof(int)));
 
-        helper.copy_mask(ymm_tmp1.id(), i_is_epilogue, ymm_mask.id());
+        helper.copy_mask(vecid_tmp1, i_is_epilogue, vecid_mask);
 
-        helper.load_indices(ymm_tmp0.id(), i_is_epilogue, arow_contig, regs::rcx, regs::rax, ymm_tmp1.id());
+        helper.load_indices(vecid_tmp0, i_is_epilogue, arow_contig, regs::rcx, regs::rax, vecid_tmp1);
 
-        helper.load_tensor(vymm_a[kreg].id(), i_is_epilogue, arow_contig, reg_addr_a, regs::rax, ymm_tmp1.id(), ymm_tmp0.id());
+        helper.load_tensor(vecid_a, i_is_epilogue, arow_contig, reg_addr_a, regs::rax, vecid_tmp1, vecid_tmp0);
 
         // broadcast value of b to whole vector
-        helper.broadcast(ymm_b.id(), reg_addr_b, regs::edi);
+        helper.broadcast(vecid_b, Mem{reg_addr_b, regs::edi, 2, 0});
 
         // mult by alpha
-        helper.mul(vymm_a[kreg].id(), vymm_a[kreg].id(), ymm_alpha.id());
+        helper.mul(vecid_a, vecid_a, vecid_alpha);
 
         // C += A*B
-        helper.fmadd(ymm_c.id(), vymm_a[kreg].id(), ymm_b.id());
+        helper.fmadd(vecid_c, vecid_a, vecid_b);
 
         assembler.add(regs::rax, m);
       
@@ -662,65 +661,13 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
     assembler.add(regs::eax, regs::edx);
     assembler.cdqe();
 
-    if (!crow_contig)
-    {
-      assembler.mov(regs::rdx, (void*)scatter_idx_c.data());
+    helper.copy_mask(vecid_tmp1, i_is_epilogue, vecid_mask);
 
-      // get address to scatter index
-      assembler.lea(regs::rax, Mem{regs::rdx, regs::rax, 2, 0});
+    assembler.mov(regs::rbx, scatter_idx_c.data());
 
-      // Store elements in ymm to C
-      const int reg_size = (loop_type == LOOP_MAIN) ? nb_floats_reg : m_epiloop;
+    helper.load_indices(vecid_tmp0, i_is_epilogue, crow_contig, regs::rbx, regs::rax, vecid_tmp1);
 
-      for (int f = 0; f < reg_size; ++f)
-      { 
-        const int f_half = f % (nb_floats_reg/2);
-
-        auto xmm_c = ymm_c.half();
-
-        // load scatter index (i,j)+f
-        assembler.mov(regs::edx, dword_ptr(regs::rax, f*SSIZEOF(int)));
-        assembler.cdqe(regs::edx);
-
-        // compute address to C element 
-        assembler.lea(regs::rdx, Mem{reg_addr_c, regs::rdx, 2, 0});
-
-        if (f_half != 0)
-        {
-          // shift values in register to the right
-          assembler.vpalignr(ymm_tmp0, xmm_c, xmm_c, Imm{f_half*sizeof(float)});
-          assembler.vmovss(dword_ptr(regs::rdx), ymm_tmp0.half());
-        }
-        else 
-        {
-          // zero offset, so just move directly
-          assembler.vmovss(dword_ptr(regs::rdx), xmm_c);
-        }      
-
-        // move higher part to lower part for extraction
-        if (f == 3)
-        {
-          assembler.vextractf128(xmm_c, ymm_c, 1);
-        }
-      }
-    }
-    else 
-    {
-      // get address to c array
-      assembler.lea(regs::rax, Mem{reg_addr_c, regs::rax, 2, 0});
-
-      if (loop_type == LOOP_EPI) 
-      { 
-        assembler.mov(regs::rbx, mask_values.data());
-        assembler.vmovdqu(ymm_mask, ymmword_ptr(regs::rbx));
-        assembler.vmaskmovps(ymmword_ptr(regs::rax), ymm_mask, ymm_c);
-      }
-      else 
-      {
-        assembler.vmovdqu(ymmword_ptr(regs::rax), ymm_c);
-      }
-
-    } // endif crow_contig
+    helper.store_tensor(i_is_epilogue, crow_contig, reg_addr_c, regs::rax, vecid_tmp1, vecid_tmp0, vecid_c, m_epiloop);
 
     if (loop_type == LOOP_MAIN)
     {

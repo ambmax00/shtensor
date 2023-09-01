@@ -322,15 +322,15 @@ int main(int argc, char** argv)
     // Max size matrix that fits in one register
     result += test_kernel<2,2,2>("ij, jk -> ik", {10,10}, {10,10}, {10,10});
 
-    // result += test_timings<3,3,2>("ikl, ljk -> ij", {8,8,8}, {8,8,8}, {8,8}, 100000);
+    result += test_timings<3,3,2>("ikl, ljk -> ij", {8,8,8}, {8,8,8}, {8,8}, 100000);
 
-    // result += test_timings<3,3,2>("kil, ljk -> ij", {8,8,8}, {8,8,8}, {8,8}, 100000);
+    result += test_timings<3,3,2>("kil, ljk -> ij", {8,8,8}, {8,8,8}, {8,8}, 100000);
 
-    // result += test_timings<3,3,2>("ikl, ljk -> ji", {5,5,5}, {5,5,5}, {5,5}, 100000);
+    result += test_timings<3,3,2>("ikl, ljk -> ji", {5,5,5}, {5,5,5}, {5,5}, 100000);
 
-    // result += test_timings<2,2,2>("ik, kj -> ij", {8,8}, {8,8}, {8,8}, 100000);
+    result += test_timings<2,2,2>("ik, kj -> ij", {8,8}, {8,8}, {8,8}, 100000);
 
-    // result += test_timings<2,2,2>("ik, kj -> ij", {16,16}, {16,16}, {16,16}, 100000);
+    result += test_timings<2,2,2>("ik, kj -> ij", {16,16}, {16,16}, {16,16}, 100000);
     
     #ifdef WITH_PYTHON
     Py_Finalize();
