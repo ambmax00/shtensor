@@ -10,8 +10,8 @@ KernelImpl::KernelImpl(const std::string _expr,
                        const std::vector<int>& _sizes_in1, 
                        const std::vector<int>& _sizes_in2,
                        const std::vector<int>& _sizes_out,
-                       std::any _alpha, 
-                       std::any _beta,
+                       AnyFloat _alpha, 
+                       AnyFloat _beta,
                        FloatType _float_type,
                        KernelType _kernel_type)
   : m_expression(_expr)
@@ -27,6 +27,7 @@ KernelImpl::KernelImpl(const std::string _expr,
   , m_info_out()
   , m_kernel_function()
   , m_jit_runtime()
+  , m_p_function(nullptr)
   , m_logger(Log::create("KernelImpl"))
 {
   
@@ -49,17 +50,18 @@ KernelImpl::KernelImpl(const std::string _expr,
   {
     case cenum(FloatType::FLOAT32, KernelType::LAPACK):
     {
-      m_kernel_function = create_kernel_lapack_float32();
+      create_kernel_lapack_float32();
       break;
     }
     case cenum(FloatType::FLOAT64, KernelType::LAPACK):
     {
-      m_kernel_function = create_kernel_lapack_float64();
+      create_kernel_lapack_float64();
       break;
     }
     case cenum(FloatType::FLOAT32, KernelType::XMM):
+    case cenum(FloatType::FLOAT64, KernelType::XMM):
     {
-      m_kernel_function = create_kernel_xmm_float32();
+      create_kernel_xmm_float32();
       break;
     }
     default:
@@ -70,7 +72,7 @@ KernelImpl::KernelImpl(const std::string _expr,
 
 }
 
-KernelFunctionSp KernelImpl::create_kernel_lapack_float32()
+void KernelImpl::create_kernel_lapack_float32()
 {
   const int64_t size_a = Utils::product(m_sizes_in1);
   const int64_t size_b = Utils::product(m_sizes_in2);
@@ -110,8 +112,8 @@ KernelFunctionSp KernelImpl::create_kernel_lapack_float32()
       const int ldb = k;
       const int ldc = m;
 
-      const float alpha = std::any_cast<float>(m_alpha);
-      const float beta = std::any_cast<float>(m_beta);
+      const float alpha = std::get<float>(m_alpha);
+      const float beta = std::get<float>(m_beta);
 
       LAPACK::sgemm('N','N',m,n,k,alpha,p_buffer_a,lda,p_buffer_b,ldb,beta,
                     p_buffer_c,ldc);
@@ -133,11 +135,11 @@ KernelFunctionSp KernelImpl::create_kernel_lapack_float32()
 
   };
 
-  return func;
+  m_kernel_function = KernelFunctionSp(func);
 
 }
 
-KernelFunctionDp KernelImpl::create_kernel_lapack_float64()
+void KernelImpl::create_kernel_lapack_float64()
 {
 
   const int64_t size_a = Utils::product(m_sizes_in1);
@@ -153,52 +155,59 @@ KernelFunctionDp KernelImpl::create_kernel_lapack_float64()
   double* p_buffer_c = p_buffer_b + size_b;
 
   // THREAD SAFETY FOR MUTABLE BUFFER???
-  auto func = [p_buffer_a,p_buffer_b,p_buffer_c,this]
+  auto func = [p_buffer_a,p_buffer_b,p_buffer_c,size_a,size_b,size_c,this]
               (double* _a, double* _b, double* _c, int64_t _nb_ops) mutable -> int
   {
-    const std::vector<int> order_a = Utils::concat(m_info_in1.map_row,m_info_in1.map_col);
-    const std::vector<int> order_b = Utils::concat(m_info_in2.map_row,m_info_in2.map_col);
-    const std::vector<int> order_c = Utils::concat(m_info_out.map_row,m_info_out.map_col);
-  
-    Utils::reshape(_a, m_sizes_in1, order_a, p_buffer_a);
-    Utils::reshape(_b, m_sizes_in2, order_b, p_buffer_b);
-    Utils::reshape(_c, m_sizes_out, order_c, p_buffer_c);
-
-    const int m = Utils::ssize(m_info_in1.scatter_row);
-    const int n = Utils::ssize(m_info_in2.scatter_col);
-    const int k = Utils::ssize(m_info_in1.scatter_col);
-
-    const int lda = m;
-    const int ldb = k;
-    const int ldc = n;
-
-    const double alpha = std::any_cast<double>(m_alpha);
-    const double beta = std::any_cast<double>(m_beta);
-
-    LAPACK::dgemm('N','N',m,n,k,alpha,p_buffer_a,lda,p_buffer_b,ldb,beta,
-                  p_buffer_c,ldc);
-
-    // reorder C
-    std::vector<int> order_c_r(order_c.size());
-    std::vector<int> sizes_c_r(order_c.size());
-
-    for (int i = 0; i < Utils::ssize(order_c_r); ++i)
+    for (int64_t iop = 0; iop < _nb_ops; ++iop)
     {
-      order_c_r[order_c[i]] = i;
-      sizes_c_r[i] = m_sizes_out[order_c[i]];
-    }
+      const std::vector<int> order_a = Utils::concat(m_info_in1.map_row,m_info_in1.map_col);
+      const std::vector<int> order_b = Utils::concat(m_info_in2.map_row,m_info_in2.map_col);
+      const std::vector<int> order_c = Utils::concat(m_info_out.map_row,m_info_out.map_col);
+    
+      double* pA = _a + iop*size_a;
+      double* pB = _b + iop*size_b;
+      double* pC = _c + iop*size_c;
 
-    Utils::reshape(p_buffer_c, sizes_c_r, order_c_r, _c);
+      Utils::reshape(pA, m_sizes_in1, order_a, p_buffer_a);
+      Utils::reshape(pB, m_sizes_in2, order_b, p_buffer_b);
+      Utils::reshape(pC, m_sizes_out, order_c, p_buffer_c);
+
+      const int m = Utils::ssize(m_info_in1.scatter_row);
+      const int n = Utils::ssize(m_info_in2.scatter_col);
+      const int k = Utils::ssize(m_info_in1.scatter_col);
+
+      const int lda = m;
+      const int ldb = k;
+      const int ldc = m;
+
+      const double alpha = std::get<double>(m_alpha);
+      const double beta = std::get<double>(m_beta);
+
+      LAPACK::dgemm('N','N',m,n,k,alpha,p_buffer_a,lda,p_buffer_b,ldb,beta,
+                    p_buffer_c,ldc);
+
+      // reorder C
+      std::vector<int> order_c_r(order_c.size());
+      std::vector<int> sizes_c_r(order_c.size());
+
+      for (int i = 0; i < Utils::ssize(order_c_r); ++i)
+      {
+        order_c_r[order_c[i]] = i;
+        sizes_c_r[i] = m_sizes_out[order_c[i]];
+      }
+
+      Utils::reshape(p_buffer_c, sizes_c_r, order_c_r, pC);
+    }
 
     return 0;
 
   };
 
-  return func;
+  m_kernel_function = KernelFunctionDp(func);
 
 }
 
-KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
+void KernelImpl::create_kernel_xmm_float32()
 {
   using namespace asmjit;
   using namespace x86;
@@ -240,9 +249,6 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
 
   DEBUG_VAR(m_logger, crow_contig);
 
-  const float alpha = std::any_cast<float>(m_alpha);
-  const float beta = std::any_cast<float>(m_beta);
-
   if (!m_jit_runtime.cpuFeatures().x86().hasAVX2())
   {
     throw std::runtime_error("CPU does not have AVX2 capabilities");
@@ -252,7 +258,10 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
   const int regSizeByte = 32;
 
   // how many units in a register?
-  const int nb_floats_reg = regSizeByte/sizeof(float);
+  const int float_size = (m_float_type == FloatType::FLOAT32) ? SSIZEOF(float) : SSIZEOF(double);
+
+  const int nb_floats_reg = regSizeByte/float_size;
+
   // == const int m_block_size (for now)
   
   const int nb_regs_m = Utils::div_ceil(m, nb_floats_reg);
@@ -278,7 +287,7 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
   DEBUG_VAR(m_logger, k_epiloop);
   DEBUG_VAR(m_logger, k_mainloop);
 
-  AvxHelper helper{AvxHelper::AVX2, FloatType::FLOAT32, assembler};
+  AvxHelper helper{AvxType::AVX2, m_float_type, assembler};
 
   enum LoopType
   {
@@ -360,6 +369,8 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
 
   uint32_t vecid_mask = fetch_reg();
 
+  uint32_t vecid_idxmask = fetch_reg();
+
   uint32_t vecid_idx = fetch_reg();
 
   uint32_t vecid_b = fetch_reg();
@@ -370,26 +381,29 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
 
   // ======== PRECOMPUTE OFFSETS IN MEMORY ===========
 
-  m_buffer.resize(((m*k)+(k*n)+(m*n)+2*nb_floats_reg)*sizeof(int));
-  int* plast = reinterpret_cast<int*>(m_buffer.data());
+  m_buffer.resize(((m*k)+(k*n)+(m*n)+2*8)*sizeof(int)+2*float_size);
+  uint8_t* plast = reinterpret_cast<uint8_t*>(m_buffer.data());
 
-  auto scatter_idx_a = Span<int>{plast, m*k};
-  plast += scatter_idx_a.size();
+  auto scatter_idx_a = Span<int>{(int*)plast, m*k};
+  plast += scatter_idx_a.size()*SSIZEOF(int);
 
-  auto scatter_idx_b = Span<int>{plast, k*n};
-  plast += scatter_idx_b.size();
+  auto scatter_idx_b = Span<int>{(int*)plast, k*n};
+  plast += scatter_idx_b.size()*SSIZEOF(int);
 
-  auto scatter_idx_c = Span<int>{plast, m*n};
-  plast += scatter_idx_c.size();
+  auto scatter_idx_c = Span<int>{(int*)plast, m*n};
+  plast += scatter_idx_c.size()*SSIZEOF(int);
 
-  auto mask_values = Span<int>(plast, nb_floats_reg);
-  plast += mask_values.size();
+  auto mask_values = Span<int>((int*)plast, 8);
+  plast += mask_values.size()*SSIZEOF(int);
 
-  auto p_beta = reinterpret_cast<float*>(plast);
-  plast++;
+  auto idx_mask_values = Span<int>((int*)plast, 8);
+  plast += idx_mask_values.size()*SSIZEOF(int);
 
-  auto p_alpha = reinterpret_cast<float*>(plast);
-  plast++;
+  auto alpha_bytes = Span<uint8_t>(plast, float_size);
+  plast += alpha_bytes.size();
+
+  auto beta_bytes = Span<uint8_t>(plast, float_size);
+  plast += beta_bytes.size();
 
   auto compute_scatter_indices = 
   [](auto& _pdest, const auto& _scatter_row, const auto& _scatter_col)
@@ -420,14 +434,52 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
 
   // Store mask for vector loading
   std::fill(mask_values.begin(), mask_values.end(), 0);
+  std::fill(idx_mask_values.begin(), idx_mask_values.end(), 0);
 
-  for (int f = 0; f < m_epiloop; ++f)
+  const int mask_scale = (m_float_type == FloatType::FLOAT32) ? 1 : 2;
+  for (int f = 0; f < mask_scale*m_epiloop; ++f)
   {
     mask_values[f] = 0xFFFFFFFF;
   }
 
-  *p_alpha = alpha;
-  *p_beta = beta;
+  for (int f = 0; f < m_epiloop; ++f)
+  {
+    idx_mask_values[f] = 0xFFFFFFFF;
+  }
+
+  Log::debug(m_logger, "Mask: {:x}", fmt::join(mask_values, ","));
+  Log::debug(m_logger, "Index mask: {:x}", fmt::join(idx_mask_values, ","));
+
+
+  auto float_to_bytes = [&](auto _any, uint8_t* _pdest)
+  {
+    if (m_float_type == FloatType::FLOAT32)
+    {
+      const float a = std::get<float>(_any);
+      auto pa_u8 = reinterpret_cast<const uint8_t*>(&a);
+      std::copy(pa_u8, pa_u8+float_size, _pdest);
+    } 
+    else if (m_float_type == FloatType::FLOAT64)
+    {
+      const double a = std::get<double>(_any);
+      auto pa_u8 = reinterpret_cast<const uint8_t*>(&a);
+      std::copy(pa_u8, pa_u8+float_size, _pdest);
+    } 
+  };
+
+  float_to_bytes(m_alpha, alpha_bytes.data());
+  float_to_bytes(m_beta, beta_bytes.data());
+
+  if (m_float_type == FloatType::FLOAT64)
+  {
+    Log::debug(m_logger, "alpha={}, beta={}", *(double*)alpha_bytes.data(), *(double*)beta_bytes.data());
+  }
+
+  const bool alpha_is_zero = (std::accumulate(alpha_bytes.begin(), alpha_bytes.end(), 0) == 0);
+  const bool beta_is_zero = (std::accumulate(beta_bytes.begin(), beta_bytes.end(), 0) == 0);
+
+  DEBUG_VAR(m_logger, alpha_is_zero);
+  DEBUG_VAR(m_logger, beta_is_zero);
 
   // ======== START ASSEMBLING FUNCTION =============
 
@@ -465,12 +517,9 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
   assembler.mov(reg_addr_b, regs::rsi);
   assembler.mov(reg_addr_c, regs::rdx);
 
-  // put alpha and beta into stack
-  Log::debug(m_logger, "alpha={}, beta={}", alpha, beta);
-
   // load alpha and beta
-  assembler.mov(regs::rax, (void*)p_beta);
-  assembler.mov(regs::rsi, (void*)p_alpha);
+  assembler.mov(regs::rax, (void*)beta_bytes.data());
+  assembler.mov(regs::rsi, (void*)alpha_bytes.data());
 
   helper.broadcast(vecid_beta, Mem{regs::rax, 0});
   helper.broadcast(vecid_alpha, Mem{regs::rsi, 0});
@@ -479,7 +528,10 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
 
   // load mask
   assembler.mov(regs::rax, mask_values.data());
-  helper.load_mask(vecid_mask, regs::rax);
+  assembler.mov(regs::rbx, idx_mask_values.data());
+
+  helper.load_mask(vecid_mask, regs::rax); 
+  helper.load_mask(vecid_idxmask, regs::rbx);
 
   // C kernel
     // Loop over n: i = 0 ---> n
@@ -533,13 +585,13 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
       assembler.bind(iloop_label);
     }
 
-    // move mask to register
-    helper.copy_mask(vecid_tmp1, (loop_type == LOOP_EPI), vecid_mask);
+    // move mask to register (copy necessary because vgather sets it to zero for some reason...)
+    helper.copy_mask(vecid_tmp1, i_is_epilogue, vecid_mask);
 
     // helper.load_mask(0, 1);
 
     // Load chunk C(MREG,j)
-    if (!Utils::bit_equal(beta,0.0f))
+    if (!beta_is_zero)
     {
       // i + j*m => eax
       assembler.mov(regs::eax, Mem{regs::rbp, stack_jloop});
@@ -551,7 +603,7 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
       assembler.mov(regs::rbx, (void*)scatter_idx_c.data());
 
       // load indices into tmp1
-      helper.load_indices(vecid_idx, i_is_epilogue, crow_contig, regs::rbx, regs::rax, vecid_tmp1);
+      helper.load_indices(vecid_idx, i_is_epilogue, crow_contig, regs::rbx, regs::rax, vecid_idxmask);
 
       // load tensor using indices and mask
       helper.load_tensor(vecid_c, i_is_epilogue, crow_contig, reg_addr_c, regs::rax, vecid_tmp1, vecid_idx);
@@ -572,7 +624,7 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
 
     for (auto kloop_type : k_loop_types)
     {
-      if (Utils::bit_equal(alpha, 0.f))
+      if (alpha_is_zero)
       {
         break;
       }
@@ -591,18 +643,6 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
       assembler.cdqe(regs::eax);  
 
       assembler.mov(regs::rcx, (void*)scatter_idx_a.data());
-
-      // if (!arow_contig)
-      // {
-      //   // get address to scatter index
-      //   assembler.mov(regs::rdx, (void*)scatter_idx_a.data());
-      //   assembler.lea(regs::rax, Mem{regs::rdx, regs::rax, 2, 0});
-      // }
-      // else
-      // {
-      //   // get address to a
-      //   assembler.lea(regs::rax, Mem{reg_addr_a, regs::rax, 2, 0});
-      // }
 
       // k + j*K => ebx
       assembler.mov(regs::ebx, Mem{regs::rbp, stack_jloop});
@@ -625,12 +665,12 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
 
         helper.copy_mask(vecid_tmp1, i_is_epilogue, vecid_mask);
 
-        helper.load_indices(vecid_tmp0, i_is_epilogue, arow_contig, regs::rcx, regs::rax, vecid_tmp1);
+        helper.load_indices(vecid_tmp0, i_is_epilogue, arow_contig, regs::rcx, regs::rax, vecid_idxmask);
 
         helper.load_tensor(vecid_a, i_is_epilogue, arow_contig, reg_addr_a, regs::rax, vecid_tmp1, vecid_tmp0);
 
         // broadcast value of b to whole vector
-        helper.broadcast(vecid_b, Mem{reg_addr_b, regs::edi, 2, 0});
+        helper.broadcast(vecid_b, reg_addr_b, regs::edi);
 
         // mult by alpha
         helper.mul(vecid_a, vecid_a, vecid_alpha);
@@ -665,7 +705,7 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
 
     assembler.mov(regs::rbx, scatter_idx_c.data());
 
-    helper.load_indices(vecid_tmp0, i_is_epilogue, crow_contig, regs::rbx, regs::rax, vecid_tmp1);
+    helper.load_indices(vecid_tmp0, i_is_epilogue, crow_contig, regs::rbx, regs::rax, vecid_idxmask);
 
     helper.store_tensor(i_is_epilogue, crow_contig, reg_addr_c, regs::rax, vecid_tmp1, vecid_tmp0, vecid_c, m_epiloop);
 
@@ -685,9 +725,9 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
 
   // ======== End loop over ops ===============
 
-  assembler.add(reg_addr_a, m*k*sizeof(float));
-  assembler.add(reg_addr_b, k*n*sizeof(float));
-  assembler.add(reg_addr_c, m*n*sizeof(float));
+  assembler.add(reg_addr_a, m*k*float_size);
+  assembler.add(reg_addr_b, k*n*float_size);
+  assembler.add(reg_addr_c, m*n*float_size);
 
   assembler.inc(qword_ptr(regs::rbp, stack_oploop));
   assembler.mov(regs::rax, qword_ptr(regs::rbp, stack_nbops));
@@ -705,24 +745,27 @@ KernelFunctionSp KernelImpl::create_kernel_xmm_float32()
   assembler.pop(regs::rbp);
 
   assembler.ret();
-                 
-  asmjit::Error err = m_jit_runtime.add(&m_xmm_fn_holder, &code);   
-
-  // std::vector<uint8_t> code_data(code.codeSize(),0);
-  // code.copyFlattenedData(code_data.data(), code_data.size());
-
-  // fmt::print("\\x{:x}\n", fmt::join(code_data.begin(), code_data.end(), "\\x"));
+  
+  asmjit::Error err = m_jit_runtime.add(&m_p_function, &code);   
 
   if (err) 
   {
     std::string err_msg = fmt::format("Failed to compile kernel: {}", err);
     throw std::runtime_error(err_msg);
   }
+  
+  if (m_float_type == FloatType::FLOAT32)
+  {
+    auto p_function_float32 = reinterpret_cast<XmmFuncFloat32>(m_p_function);
+    m_kernel_function = KernelFunctionSp(p_function_float32);
+  }
+  else if (m_float_type == FloatType::FLOAT64)
+  {
+    auto p_function_float32 = reinterpret_cast<XmmFuncFloat64>(m_p_function);
+    m_kernel_function = KernelFunctionDp(p_function_float32);
+  }
 
-  return [this](float* _a, float* _b, float* _c, int64_t _nb_ops) 
-    { 
-      return this->m_xmm_fn_holder(_a, _b, _c, _nb_ops);
-    };
+  return;
 
 }
 

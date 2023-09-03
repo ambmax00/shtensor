@@ -3,6 +3,7 @@
 #include <Logger.h>
 #include <Timer.h>
 #include "TestUtils.h"
+#include "Utils.h"
 
 #include <random>
 
@@ -115,7 +116,7 @@ bool einsum_python(const std::string& _expr,
 }
 #endif
 
-template <int N, int M, int K>
+template <typename T, int N, int M, int K>
 int test_contract(const std::string _expr, 
                   const std::array<int,N>& _sizes_a,
                   const std::array<int,M>& _sizes_b,
@@ -130,16 +131,16 @@ int test_contract(const std::string _expr,
   const int nb_elements_b = Shtensor::Utils::product(_sizes_b);
   const int nb_elements_c = Shtensor::Utils::product(_sizes_c);
 
-  std::vector<float> data_a(_nb_cons*nb_elements_a,0);
-  std::vector<float> data_b(_nb_cons*nb_elements_b,0);
-  std::vector<float> data_c(_nb_cons*nb_elements_c,0);
-  std::vector<float> result_c(_nb_cons*nb_elements_c,0);
+  std::vector<T> data_a(_nb_cons*nb_elements_a,0);
+  std::vector<T> data_b(_nb_cons*nb_elements_b,0);
+  std::vector<T> data_c(_nb_cons*nb_elements_c,0);
+  std::vector<T> result_c(_nb_cons*nb_elements_c,0);
 
   fill_random(data_a.begin(), data_a.end());
   fill_random(data_b.begin(), data_b.end());
   fill_random(data_c.begin(), data_c.end());
 
-  Shtensor::Kernel<float> kernel(_expr, _sizes_a, _sizes_b, _sizes_c, 1.0, 0.0, 
+  Shtensor::Kernel<T> kernel(_expr, _sizes_a, _sizes_b, _sizes_c, 1.0, 0.0, 
                                  Shtensor::KernelType::LAPACK);
 
   fmt::print(kernel.get_info());
@@ -147,18 +148,18 @@ int test_contract(const std::string _expr,
   std::copy(data_c.begin(), data_c.end(), result_c.begin());
   kernel.call(data_a.data(), data_b.data(), result_c.data(), _nb_cons);
 
-  float lapack_rms = 0;
+  T lapack_rms = 0;
   get_statistics(result_c.begin(), result_c.end(), lapack_rms);
 
   // fmt::print("C: {}", fmt::join(result_c.begin(), result_c.end(), ","));
 
-  Shtensor::Kernel<float> xmm_kernel(_expr, _sizes_a, _sizes_b, _sizes_c, 1.0, 0.0, 
-                                     Shtensor::KernelType::XMM);
+  Shtensor::Kernel<T> xmm_kernel(_expr, _sizes_a, _sizes_b, _sizes_c, 1.0, 0.0, 
+                                 Shtensor::KernelType::XMM);
 
   std::copy(data_c.begin(), data_c.end(), result_c.begin());
   xmm_kernel.call(data_a.data(), data_b.data(), result_c.data(), _nb_cons);
 
-  float xmm_rms = 0;
+  T xmm_rms = 0;
   get_statistics(result_c.begin(), result_c.end(), xmm_rms);
 
   // fmt::print("A: [{}]\n", fmt::join(data_a.begin(), data_a.end(), ","));
@@ -174,7 +175,7 @@ int test_contract(const std::string _expr,
     result += 1;
   }
 
-  float python_rms = 0;
+  T python_rms = 0;
   get_statistics(result_c.begin(), result_c.end(), python_rms);
 
   // fmt::print("RMS for Python kernel is {}\n", python_rms);
@@ -187,7 +188,7 @@ int test_contract(const std::string _expr,
   return result;
 }
 
-template <int N, int M, int K>
+template <typename T, int N, int M, int K>
 int test_timings(const std::string _expr, 
                  const std::array<int,N>& _sizes_a,
                  const std::array<int,M>& _sizes_b,
@@ -202,17 +203,17 @@ int test_timings(const std::string _expr,
   const int nb_elements_b = Shtensor::Utils::product(_sizes_b);
   const int nb_elements_c = Shtensor::Utils::product(_sizes_c);
 
-  std::vector<float> data_a(_nb_cons*nb_elements_a, _nb_cons);
-  std::vector<float> data_b(_nb_cons*nb_elements_b, _nb_cons);
-  std::vector<float> data_c(_nb_cons*nb_elements_c, _nb_cons);
-  std::vector<float> result_c(_nb_cons*nb_elements_c, _nb_cons);
+  std::vector<T> data_a(_nb_cons*nb_elements_a, _nb_cons);
+  std::vector<T> data_b(_nb_cons*nb_elements_b, _nb_cons);
+  std::vector<T> data_c(_nb_cons*nb_elements_c, _nb_cons);
+  std::vector<T> result_c(_nb_cons*nb_elements_c, _nb_cons);
 
   fill_random(data_a.begin(), data_a.end());
   fill_random(data_b.begin(), data_b.end());
   fill_random(data_c.begin(), data_c.end());
 
-  Shtensor::Kernel<float> kernel(_expr, _sizes_a, _sizes_b, _sizes_c, 1.0, 0.0, 
-                                 Shtensor::KernelType::LAPACK);
+  Shtensor::Kernel<T> kernel(_expr, _sizes_a, _sizes_b, _sizes_c, 1.0, 0.0, 
+                             Shtensor::KernelType::LAPACK);
 
   fmt::print(kernel.get_info());
 
@@ -222,8 +223,8 @@ int test_timings(const std::string _expr,
   kernel.call(data_a.data(), data_b.data(), result_c.data(), _nb_cons);
   const double lapack_time = lapack_timer.elapsed();
 
-  Shtensor::Kernel<float> xmm_kernel(_expr, _sizes_a, _sizes_b, _sizes_c, 1.0, 0.0, 
-                                     Shtensor::KernelType::XMM);
+  Shtensor::Kernel<T> xmm_kernel(_expr, _sizes_a, _sizes_b, _sizes_c, 1.0, 0.0, 
+                                 Shtensor::KernelType::XMM);
 
   std::copy(data_c.begin(), data_c.end(), result_c.begin());
 
@@ -231,13 +232,13 @@ int test_timings(const std::string _expr,
   xmm_kernel.call(data_a.data(), data_b.data(), result_c.data(), _nb_cons);
   const double xmm_time = xmm_timer.elapsed();
 
-  fmt::print("Times: {}s, {}s", lapack_time/_nb_cons, xmm_time/_nb_cons);
+  fmt::print("Times: {}s, {}s\n", lapack_time/_nb_cons, xmm_time/_nb_cons);
 
   return result;
 }
 
 
-template <int N, int M, int K>
+template <typename T, int N, int M, int K>
 int test_kernel(const std::string _expr, 
                 const std::array<int,N>& _sizes_a,
                 const std::array<int,M>& _sizes_b,
@@ -253,29 +254,29 @@ int test_kernel(const std::string _expr,
   const int nb_elements_b = Shtensor::Utils::product(_sizes_b);
   const int nb_elements_c = Shtensor::Utils::product(_sizes_c);
 
-  std::vector<float> data_a(nb_elements_a,0);
-  std::vector<float> data_b(nb_elements_b,0);
-  std::vector<float> data_c(nb_elements_c,0);
+  std::vector<T> data_a(nb_elements_a,0);
+  std::vector<T> data_b(nb_elements_b,0);
+  std::vector<T> data_c(nb_elements_c,0);
 
   fill_random(data_a.begin(), data_a.end());
   fill_random(data_b.begin(), data_b.end());
   fill_random(data_c.begin(), data_c.end());
 
-  const float sum_c = std::accumulate(data_c.begin(), data_c.end(), 0.0);
+  const T sum_c = std::accumulate(data_c.begin(), data_c.end(), T());
 
   // fmt::print("A: [{}]\n", fmt::join(data_a.begin(), data_a.end(), ","));
   // fmt::print("B: [{}]\n", fmt::join(data_b.begin(), data_b.end(), ","));
   // fmt::print("C: [{}]\n", fmt::join(data_c.begin(), data_c.end(), ","));
 
-  const float beta = 2.0;
-  Shtensor::Kernel<float> kernel(_expr, _sizes_a, _sizes_b, _sizes_c, 0.0, beta, 
-                                 Shtensor::KernelType::XMM);
+  const T beta = 2.0;
+  Shtensor::Kernel<T> kernel(_expr, _sizes_a, _sizes_b, _sizes_c, T(), beta, 
+                             Shtensor::KernelType::XMM);
 
   kernel.call(data_a.data(), data_b.data(), data_c.data(), 1);
 
   // fmt::print("C: [{}]\n", fmt::join(data_c.begin(), data_c.end(), ","));
 
-  const float sum_c_after = std::accumulate(data_c.begin(), data_c.end(), 0.0);
+  const T sum_c_after = std::accumulate(data_c.begin(), data_c.end(), T());
 
   SHTENSOR_TEST_ALMOST_EQUAL(beta*sum_c, sum_c_after, 1e-6, result);
 
@@ -302,35 +303,57 @@ int main(int argc, char** argv)
     Py_Initialize();
     #endif
 
-    result += test_contract<2,2,2>("ik, kj -> ij", {8,5}, {5,6}, {8,6}, 20);
+    result += test_contract<float,2,2,2>("ik, kj -> ij", {8,5}, {5,6}, {8,6}, 20);
 
-    result += test_contract<3,3,2>("jik, kmj -> im", {6,5,8}, {8,4,6}, {5,4}, 20);
+    result += test_contract<double,2,2,2>("ik, kj -> ij", {8,5}, {5,6}, {8,6}, 20);
 
-    result += test_contract<3,4,3>("ikl, lkmj -> mij", {6,5,7}, {7,5,6,6}, {6,6,6}, 20);
+    result += test_contract<float,3,3,2>("jik, kmj -> im", {6,5,8}, {8,4,6}, {5,4}, 20);
 
-    result += test_kernel<4,3,3>("ijml, lmk -> jki", {5,6,8,9}, {9,8,7}, {6,7,5});
+    result += test_contract<double,3,3,2>("jik, kmj -> im", {6,5,8}, {8,4,6}, {5,4}, 20);
+
+    result += test_contract<float,3,4,3>("ikl, lkmj -> mij", {6,5,7}, {7,5,6,6}, {6,6,6}, 20);
+
+    result += test_contract<double,3,4,3>("ikl, lkmj -> mij", {6,5,7}, {7,5,6,6}, {6,6,6}, 20);
+
+    result += test_kernel<float,4,3,3>("ijml, lmk -> jki", {5,6,8,9}, {9,8,7}, {6,7,5});
     
     // very very small matrices
-     result += test_kernel<2,2,2>("ij, jk -> ik", {2,2}, {2,2}, {2,2});
+    result += test_kernel<float,2,2,2>("ij, jk -> ik", {2,2}, {2,2}, {2,2});
 
     // very small matrices
-    result += test_kernel<2,2,2>("ij, jk -> ik", {5,5}, {5,5}, {5,5});
+    result += test_kernel<float,2,2,2>("ij, jk -> ik", {5,5}, {5,5}, {5,5});
 
     // Max size matrix that fits in one register
-    result += test_kernel<2,2,2>("ij, jk -> ik", {8,8}, {8,8}, {8,8});
+    result += test_kernel<float,2,2,2>("ij, jk -> ik", {8,8}, {8,8}, {8,8});
 
     // Max size matrix that fits in one register
-    result += test_kernel<2,2,2>("ij, jk -> ik", {10,10}, {10,10}, {10,10});
+    result += test_kernel<float,2,2,2>("ij, jk -> ik", {10,10}, {10,10}, {10,10});
 
-    result += test_timings<3,3,2>("ikl, ljk -> ij", {8,8,8}, {8,8,8}, {8,8}, 100000);
+    result += test_kernel<double,2,2,2>("ij, jk -> ik", {3,3}, {3,3}, {3,3});
 
-    result += test_timings<3,3,2>("kil, ljk -> ij", {8,8,8}, {8,8,8}, {8,8}, 100000);
+    result += test_kernel<double,2,2,2>("ij, jk -> ik", {4,4}, {4,4}, {4,4});
 
-    result += test_timings<3,3,2>("ikl, ljk -> ji", {5,5,5}, {5,5,5}, {5,5}, 100000);
+    result += test_kernel<double,2,2,2>("ij, jk -> ki", {4,4}, {4,4}, {4,4});
 
-    result += test_timings<2,2,2>("ik, kj -> ij", {8,8}, {8,8}, {8,8}, 100000);
+    result += test_timings<float,3,3,2>("ikl, ljk -> ij", {8,8,8}, {8,8,8}, {8,8}, 100000);
 
-    result += test_timings<2,2,2>("ik, kj -> ij", {16,16}, {16,16}, {16,16}, 100000);
+    result += test_timings<double,3,3,2>("ikl, ljk -> ij", {8,8,8}, {8,8,8}, {8,8}, 10000);
+
+    result += test_timings<float,3,3,2>("kil, ljk -> ij", {8,8,8}, {8,8,8}, {8,8}, 100000);
+
+    result += test_timings<double,3,3,2>("kil, ljk -> ij", {8,8,8}, {8,8,8}, {8,8}, 10000);
+
+    result += test_timings<float,3,3,2>("ikl, ljk -> ji", {5,5,5}, {5,5,5}, {5,5}, 100000);
+
+    result += test_timings<double,3,3,2>("ikl, ljk -> ji", {5,5,5}, {5,5,5}, {5,5}, 10000);
+
+    result += test_timings<float,2,2,2>("ik, kj -> ij", {8,8}, {8,8}, {8,8}, 100000);
+
+    result += test_timings<double,2,2,2>("ik, kj -> ij", {8,8}, {8,8}, {8,8}, 10000);
+
+    result += test_timings<float,2,2,2>("ik, kj -> ij", {16,16}, {16,16}, {16,16}, 100000);
+
+    result += test_timings<double,2,2,2>("ik, kj -> ij", {16,16}, {16,16}, {16,16}, 10000);
     
     #ifdef WITH_PYTHON
     Py_Finalize();

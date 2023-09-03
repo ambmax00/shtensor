@@ -1,10 +1,11 @@
 #ifndef SHTENSOR_KERNEL_H
 #define SHTENSOR_KERNEL_H
 
-#include "ContractInfo.h"
+#include "KernelDefinitions.h"
 
 #include <any>
 #include <array>
+#include <memory>
 #include <string>
 #include <typeinfo>
 #include <vector>
@@ -41,12 +42,12 @@ class KernelBase
                       const std::vector<int>& _sizes_in1, 
                       const std::vector<int>& _sizes_in2,
                       const std::vector<int>& _sizes_out,
-                      std::any _alpha, 
-                      std::any _beta,
+                      AnyFloat _alpha, 
+                      AnyFloat _beta,
                       FloatType _float_type,
                       KernelType _kernel_type);
 
-  std::any get_kernel_function();
+  const AnyKernel& get_kernel_function();
 
   std::string get_info();
 
@@ -81,18 +82,13 @@ class Kernel : public KernelBase
                  _beta, 
                  kernel_type<T>(),
                  _kernel_type)
-    , m_kernel_function(std::any_cast<KernelFunctionT>(get_kernel_function()))
   {
   }
 
   inline void call(T* _a, T* _b, T* _c, int64_t _nb_ops)
   {
-    int res = m_kernel_function(_a,_b,_c,_nb_ops);
+    std::get<KernelFunctionT>(get_kernel_function())(_a,_b,_c,_nb_ops);
   }
-
- private:
-
-  KernelFunctionT m_kernel_function;
 
 };
 

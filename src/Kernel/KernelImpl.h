@@ -2,16 +2,13 @@
 #define SHTENSOR_KERNELIMPL
 
 #include "ContractInfo.h"
+#include "KernelDefinitions.h"
 
 #include "asmjit/x86.h"
 #include <any>
 
 namespace Shtensor 
 {
-
-using KernelFunctionSp = std::function<int(float*,float*,float*,int64_t)>;
-
-using KernelFunctionDp = std::function<int(double*,double*,double*,int64_t)>;
 
 class KernelImpl
 {
@@ -21,18 +18,18 @@ class KernelImpl
                       const std::vector<int>& _sizes_in1, 
                       const std::vector<int>& _sizes_in2,
                       const std::vector<int>& _sizes_out,
-                      std::any _alpha, 
-                      std::any _beta,
+                      AnyFloat _alpha, 
+                      AnyFloat _beta,
                       FloatType _float_type,
                       KernelType _kernel_type);
 
-  KernelFunctionSp create_kernel_lapack_float32();
+  void create_kernel_lapack_float32();
 
-  KernelFunctionDp create_kernel_lapack_float64();
+  void create_kernel_lapack_float64();
 
-  KernelFunctionSp create_kernel_xmm_float32();
+  void create_kernel_xmm_float32();
 
-  std::any get_kernel_function() { return m_kernel_function; }
+  const AnyKernel& get_kernel_function() { return m_kernel_function; }
 
   std::string get_info();
 
@@ -46,9 +43,9 @@ class KernelImpl
 
   std::vector<int> m_sizes_out;
 
-  std::any m_alpha;
+  AnyFloat m_alpha;
 
-  std::any m_beta;
+  AnyFloat m_beta;
 
   FloatType m_float_type;
 
@@ -60,15 +57,17 @@ class KernelImpl
 
   ContractInfo m_info_out;
 
-  std::any m_kernel_function;
+  AnyKernel m_kernel_function;
 
   std::vector<char> m_buffer;
 
   asmjit::JitRuntime m_jit_runtime;
 
-  typedef int (*XmmFunc)(float*,float*,float*,int64_t);
+  typedef int (*XmmFuncFloat32)(float*,float*,float*,int64_t);
 
-  XmmFunc m_xmm_fn_holder;
+  typedef int (*XmmFuncFloat64)(double*,double*,double*,int64_t);
+
+  void* m_p_function;
 
   Log::Logger m_logger;
   

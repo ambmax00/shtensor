@@ -1,6 +1,7 @@
 #ifndef SHTENSOR_AVXHELPER
 #define SHTENSOR_AVXHELPER
 
+#include "KernelDefinitions.h"
 #include "Utils.h"
 #include "asmjit/x86.h"
 
@@ -21,12 +22,7 @@ class AvxHelper
 
   using Mem = asmjit::x86::Mem;
 
-  enum Type
-  {
-    AVX2 = 0
-  };
-
-  AvxHelper(Type _avx_type, FloatType _float_type, Assembler& _assembler);  
+  AvxHelper(AvxType _avx_type, FloatType _float_type, Assembler& _assembler);  
 
   void load_mask(uint32_t _vecidx_mask, regdw _mask_address);
 
@@ -59,6 +55,8 @@ class AvxHelper
   void mul(uint32_t _vecidx_result, uint32_t _vecidx_a, uint32_t vecidx_b);
 
   void broadcast(uint32_t _vecidx, Mem _mem);
+
+  void broadcast(uint32_t _vecidx, regdw _reg_base, regw _reg_index);
 
   void fmadd(uint32_t _vecidx_result, uint32_t _vecidx_a, uint32_t _vecidx_b);
 
@@ -106,7 +104,7 @@ class AvxHelper
 
   void fmadd_avx2(uint32_t _vecidx_result, uint32_t _vecidx_a, uint32_t _vecidx_b);
 
-  Type m_avx_type;
+  AvxType m_avx_type;
 
   FloatType m_float_type;
 

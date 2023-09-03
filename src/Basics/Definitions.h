@@ -80,18 +80,6 @@ constexpr static inline int64_t MiB = KiB*1024;
 constexpr static inline int64_t GiB = MiB*1024;
 constexpr static inline int64_t TiB = GiB*1024; // will probably never be used, but one can dream
 
-enum class FloatType 
-{
-  FLOAT32 = 0,
-  FLOAT64 = 1
-};
-
-enum class KernelType
-{
-  LAPACK = 0,
-  XMM = 1
-};
-
 } // end namespace Shtensor
 
 #endif

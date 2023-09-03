@@ -7,7 +7,7 @@ using namespace asmjit;
 using namespace asmjit::x86;
 using namespace asmjit::x86::regs;
 
-AvxHelper::AvxHelper(Type _avx_type, FloatType _float_type, Assembler& _assembler)
+AvxHelper::AvxHelper(AvxType _avx_type, FloatType _float_type, Assembler& _assembler)
   : m_avx_type(_avx_type)
   , m_float_type(_float_type)
   , m_assembler(_assembler)
@@ -18,7 +18,7 @@ void AvxHelper::load_mask(uint32_t _vecidx_mask, regdw _mask_address)
 {
   switch (m_avx_type)
   {
-    case Type::AVX2:
+    case AvxType::AVX2:
     {
       load_mask_avx2(_vecidx_mask, _mask_address);
       break;
@@ -30,7 +30,7 @@ void AvxHelper::copy_mask(uint32_t _vecidx_copy, bool _is_epilogue, uint32_t _ve
 {
   switch (m_avx_type)
   {
-    case Type::AVX2:
+    case AvxType::AVX2:
     {
       copy_mask_avx2(_vecidx_copy, _is_epilogue, _vecidx_mask);
       break;
@@ -53,7 +53,7 @@ void AvxHelper::load_indices(uint32_t _vecidx_indices,
 
   switch (m_avx_type)
   {
-    case Type::AVX2:
+    case AvxType::AVX2:
     {
       load_indices_avx2(_vecidx_indices, _is_epilogue, _reg_scatter, _reg_index, _vecidx_mask);
       break;
@@ -72,11 +72,12 @@ void AvxHelper::load_tensor(uint32_t _vecidx_tensor,
 { 
   switch (m_avx_type)
   {
-    case Type::AVX2:
+    case AvxType::AVX2:
     {
       if (_contiguous)
       {
-        load_tensor_avx2_contig(_vecidx_tensor, _is_epilogue, _reg_addr_tensor, _reg_index, _vecidx_mask);
+        load_tensor_avx2_contig(_vecidx_tensor, _is_epilogue, _reg_addr_tensor, _reg_index, 
+                                _vecidx_mask);
       }
       else 
       {
@@ -91,7 +92,7 @@ void AvxHelper::mul(uint32_t _vecidx_result, uint32_t _vecidx_a, uint32_t vecidx
 {
   switch (m_avx_type)
   {
-    case Type::AVX2:
+    case AvxType::AVX2:
     {
       mul_avx2(_vecidx_result, _vecidx_a, vecidx_b);
       break;
@@ -103,7 +104,7 @@ void AvxHelper::broadcast(uint32_t _vecidx, Mem _mem)
 {
   switch (m_avx_type)
   {
-    case Type::AVX2:
+    case AvxType::AVX2:
     {
       broadcast_avx2(_vecidx, _mem);
       break;
@@ -111,11 +112,17 @@ void AvxHelper::broadcast(uint32_t _vecidx, Mem _mem)
   }
 }
 
+void AvxHelper::broadcast(uint32_t _vecidx, regdw _reg_base, regw _reg_index)
+{
+  const int shift = (m_float_type == FloatType::FLOAT32) ? 2 : 3;
+  broadcast(_vecidx, Mem{_reg_base, _reg_index, shift, 0});
+}
+
 void AvxHelper::fmadd(uint32_t _vecidx_result, uint32_t _vecidx_a, uint32_t _vecidx_b)
 {
   switch (m_avx_type)
   {
-    case Type::AVX2:
+    case AvxType::AVX2:
     {
       fmadd_avx2(_vecidx_result, _vecidx_a, _vecidx_b);
       break;
@@ -125,10 +132,7 @@ void AvxHelper::fmadd(uint32_t _vecidx_result, uint32_t _vecidx_a, uint32_t _vec
 
 void AvxHelper::load_mask_avx2(uint32_t _vecidx_mask, regdw _mask_address)
 {
-  if (m_float_type == FloatType::FLOAT32)
-  {
-    m_assembler.vmovdqu(Ymm(_vecidx_mask), ymmword_ptr(_mask_address));
-  }
+  m_assembler.vmovdqu(Ymm(_vecidx_mask), ymmword_ptr(_mask_address));
 }
 
 void AvxHelper::copy_mask_avx2(uint32_t _vecid_copy, bool _is_epilogue, uint32_t _vecid_mask)
@@ -165,12 +169,21 @@ void AvxHelper::load_indices_avx2(uint32_t _vecidx_indices,
     {
       m_assembler.vmovdqu(ymm_idx, ymmword_ptr(regs::r14));
     }
+    else if (m_float_type == FloatType::FLOAT64)
+    {
+      m_assembler.vmovdqu(ymm_idx.half(), xmmword_ptr(regs::r14));
+    }
+
   }
   else 
   {
     if (m_float_type == FloatType::FLOAT32)
     {
       m_assembler.vmaskmovps(ymm_idx, ymm_mask, ymmword_ptr(regs::r14));
+    }
+    else if (m_float_type == FloatType::FLOAT64)
+    {
+      m_assembler.vmaskmovps(ymm_idx.half(), ymm_mask.half(), xmmword_ptr(regs::r14));
     }
     
   }
@@ -184,8 +197,14 @@ void AvxHelper::load_tensor_avx2_noncontig(uint32_t _vecidx_tensor,
   if (m_float_type == FloatType::FLOAT32)
   {
     m_assembler.vgatherdps(Ymm(_vecidx_tensor), 
-                            Mem{_reg_addr_tensor, Ymm(_vecidx_indices), 2, 0}, 
-                            Ymm(_vecidx_mask));
+                           Mem{_reg_addr_tensor, Ymm(_vecidx_indices), 2, 0}, 
+                           Ymm(_vecidx_mask));
+  }
+  else if (m_float_type == FloatType::FLOAT64)
+  {
+    m_assembler.vgatherdpd(Ymm(_vecidx_tensor), 
+                           Mem{_reg_addr_tensor, Ymm(_vecidx_indices), 3, 0}, 
+                           Ymm(_vecidx_mask));
   }
 }
 
@@ -197,7 +216,6 @@ void AvxHelper::load_tensor_avx2_contig(uint32_t _vecidx_tensor,
 {
   if (m_float_type == FloatType::FLOAT32)
   {
-    // get address to C
     m_assembler.lea(regs::r14, Mem{_reg_addr_tensor, _reg_index, 2, 0});
 
     if (!_is_epilogue)
@@ -208,6 +226,20 @@ void AvxHelper::load_tensor_avx2_contig(uint32_t _vecidx_tensor,
     {
       m_assembler.vmaskmovps(Ymm(_vecidx_tensor), Ymm(_vecidx_mask), ymmword_ptr(regs::r14));
     }
+  }
+  else if (m_float_type == FloatType::FLOAT64)
+  {
+    m_assembler.lea(regs::r14, Mem{_reg_addr_tensor, _reg_index, 3, 0});
+
+    if (!_is_epilogue)
+    {
+      m_assembler.vmovdqu(Ymm(_vecidx_tensor), ymmword_ptr(regs::r14));
+    }
+    else 
+    {
+      m_assembler.vmaskmovpd(Ymm(_vecidx_tensor), Ymm(_vecidx_mask), ymmword_ptr(regs::r14));
+    }
+
   }
 }
 
@@ -221,6 +253,10 @@ void AvxHelper::mul_avx2(uint32_t _vecidx_result, uint32_t _vecidx_a, uint32_t _
   {
     m_assembler.vmulps(ymm_r, ymm_a, ymm_b);
   }
+  else if (m_float_type == FloatType::FLOAT64)
+  {
+    m_assembler.vmulpd(ymm_r, ymm_a, ymm_b);
+  }
   
 }
 
@@ -231,6 +267,11 @@ void AvxHelper::broadcast_avx2(uint32_t _vecidx, Mem _mem)
     _mem.setSize(4);
     m_assembler.vbroadcastss(Ymm{_vecidx}, _mem);
   }
+  else if (m_float_type == FloatType::FLOAT64)
+  {
+    _mem.setSize(8);
+    m_assembler.vbroadcastsd(Ymm{_vecidx}, _mem);
+  }
 }
 
 void AvxHelper::fmadd_avx2(uint32_t _vecidx_result, uint32_t _vecidx_a, uint32_t _vecidx_b)
@@ -238,6 +279,10 @@ void AvxHelper::fmadd_avx2(uint32_t _vecidx_result, uint32_t _vecidx_a, uint32_t
   if (m_float_type == FloatType::FLOAT32)
   {
     m_assembler.vfmadd231ps(Ymm{_vecidx_result}, Ymm{_vecidx_a}, Ymm{_vecidx_b});
+  }
+  else if (m_float_type == FloatType::FLOAT64)
+  {
+    m_assembler.vfmadd231pd(Ymm{_vecidx_result}, Ymm{_vecidx_a}, Ymm{_vecidx_b});
   }
 }
 
@@ -252,7 +297,7 @@ void AvxHelper::store_tensor(bool _is_epilogue,
 {
   switch (m_avx_type)
   {
-    case Type::AVX2:
+    case AvxType::AVX2:
     {
       if (_contiguous)
       {
@@ -276,12 +321,12 @@ void AvxHelper::store_tensor_avx2_noncontig(bool _is_epilogue,
                                             uint32_t _vecidx_tensor,
                                             int _mask_size)
 {
+  auto ymm_tmp = Ymm{_vecidx_tmp};
+  auto ymm_indices = Ymm{_vecidx_indices};
+  auto ymm_tensor = Ymm{_vecidx_tensor};
+
   if (m_float_type == FloatType::FLOAT32)
   {
-    auto ymm_tmp = Ymm{_vecidx_tmp};
-    auto ymm_indices = Ymm{_vecidx_indices};
-    auto ymm_tensor = Ymm{_vecidx_tensor};
-
     const int reg_size = (_is_epilogue) ? _mask_size : 8;
 
     for (int f = 0; f < reg_size; ++f)
@@ -315,6 +360,40 @@ void AvxHelper::store_tensor_avx2_noncontig(bool _is_epilogue,
       }
     }
   }
+  else if (m_float_type == FloatType::FLOAT64)
+  {
+    const int reg_size = (_is_epilogue) ? _mask_size : 4;
+
+    for (int f = 0; f < reg_size; ++f)
+    { 
+      const int f_half = f % 2;
+
+      // extract single index
+      m_assembler.vextractps(regs::r14d, ymm_indices.half(), f);
+      m_assembler.cdqe(regs::r14d);
+
+      // compute address to C element 
+      m_assembler.lea(regs::r14, Mem{_reg_addr_tensor, regs::r14, 3, 0});
+
+      if (f_half != 0)
+      {
+        // shift values in register to the right
+        m_assembler.vpalignr(ymm_tmp, ymm_tensor.half(), ymm_tensor.half(), Imm{f_half*8});
+        m_assembler.vmovsd(qword_ptr(regs::r14), ymm_tmp.half());
+      }
+      else 
+      {
+        // zero offset, so just move directly
+        m_assembler.vmovsd(qword_ptr(regs::r14), ymm_tensor.half());
+      }      
+
+      // move higher part to lower part for extraction
+      if (f == 1)
+      {
+        m_assembler.vextractf128(ymm_tensor, ymm_tensor.half(), 1);
+      }
+    }
+  }
 }
 
 void AvxHelper::store_tensor_avx2_contig(bool _is_epilogue,
@@ -323,16 +402,31 @@ void AvxHelper::store_tensor_avx2_contig(bool _is_epilogue,
                                          uint32_t _vecidx_mask,
                                          uint32_t _vecidx_tensor)
 {
-  // get address to c array
-  m_assembler.lea(regs::r14, Mem{_reg_addr_tensor, _reg_index, 2, 0});
-
-  if (_is_epilogue) 
-  { 
-    m_assembler.vmaskmovps(ymmword_ptr(regs::r14), Ymm{_vecidx_mask}, Ymm{_vecidx_tensor});
-  }
-  else 
+  if (m_float_type == FloatType::FLOAT32)
   {
-    m_assembler.vmovdqu(ymmword_ptr(regs::r14), Ymm{_vecidx_tensor});
+    m_assembler.lea(regs::r14, Mem{_reg_addr_tensor, _reg_index, 2, 0});
+
+    if (_is_epilogue) 
+    { 
+      m_assembler.vmaskmovps(ymmword_ptr(regs::r14), Ymm{_vecidx_mask}, Ymm{_vecidx_tensor});
+    }
+    else 
+    {
+      m_assembler.vmovdqu(ymmword_ptr(regs::r14), Ymm{_vecidx_tensor});
+    } 
+  } 
+  else if (m_float_type == FloatType::FLOAT64)
+  {
+    m_assembler.lea(regs::r14, Mem{_reg_addr_tensor, _reg_index, 3, 0});
+
+    if (_is_epilogue) 
+    { 
+      m_assembler.vmaskmovpd(ymmword_ptr(regs::r14), Ymm{_vecidx_mask}, Ymm{_vecidx_tensor});
+    }
+    else 
+    {
+      m_assembler.vmovdqu(ymmword_ptr(regs::r14), Ymm{_vecidx_tensor});
+    } 
   }
 }
 
@@ -340,7 +434,7 @@ void AvxHelper::zero(uint32_t _vecid)
 {
   switch (m_avx_type)
   {
-    case Type::AVX2:
+    case AvxType::AVX2:
     {
       Ymm reg{_vecid};
       m_assembler.vpxor(reg, reg, reg);
