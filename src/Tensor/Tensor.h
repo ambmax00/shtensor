@@ -9,7 +9,7 @@
 #include "BlockSpan.h"
 #include "Context.h"
 #include "MemoryPool.h"
-#include "PGAS.h"
+#include "ShmemInterface.h"
 #include "ThreadPool.h"
 
 namespace Shtensor 

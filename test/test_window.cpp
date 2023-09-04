@@ -1,6 +1,6 @@
 #include "TestUtils.h"
 #include "Context.h"
-#include "PGAS.h"
+#include "ShmemInterface.h"
 
 int main(int argc, char** argv)
 {

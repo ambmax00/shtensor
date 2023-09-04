@@ -1,5 +1,5 @@
-#ifndef SHTENSOR_PGAS_H
-#define SHTENSOR_PGAS_H
+#ifndef SHTENSOR_SHMEMINTERFACE_H
+#define SHTENSOR_SHMEMINTERFACE_H
 
 #include "BlockSpan.h"
 #include "Context.h"
@@ -77,4 +77,4 @@ class ShmemInterface
 
 } // end namespace shtensor
 
-#endif // SHTENSOR_PGAS_H
+#endif // SHTENSOR_SHMEMINTERFACE_H
