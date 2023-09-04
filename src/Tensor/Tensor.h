@@ -177,14 +177,16 @@ class Tensor
       nb_elements_row[irow] += block_size;
     }
 
+    ShmemInterface shmem{m_ctx};
+
     // count number of total elements
     m_sinfo_local.nb_nze = std::accumulate(nb_elements_row.begin(), nb_elements_row.end(), 0);
 
-    m_sparse_info.row_idx = shmem::allocate<int64_t>(m_ctx, nb_rows);
+    m_sparse_info.row_idx = shmem.allocate<int64_t>(nb_rows);
 
-    m_sparse_info.slice_idx = shmem::allocate<int64_t>(m_ctx, m_sinfo_local.nb_nzblocks_sym);
+    m_sparse_info.slice_idx = shmem.allocate<int64_t>(m_sinfo_local.nb_nzblocks_sym);
 
-    m_sparse_info.slice_offset = shmem::allocate<int64_t>(m_ctx, m_sinfo_local.nb_nzblocks_sym);
+    m_sparse_info.slice_offset = shmem.allocate<int64_t>(m_sinfo_local.nb_nzblocks_sym);
   
     std::copy(nb_slices_row.begin(), nb_slices_row.end(), m_sparse_info.row_idx.begin());
 
@@ -256,7 +258,7 @@ class Tensor
     MPI_Allreduce(&m_sinfo_local.nb_nze, &m_sinfo_local.nb_nze_sym, 1, MPI_INT64_T, MPI_MAX, 
                   m_ctx.get_comm());
 
-    m_win_data = shmem::allocate<T>(m_ctx, m_sinfo_local.nb_nze_sym);
+    m_win_data = shmem.allocate<T>(m_sinfo_local.nb_nze_sym);
 
     std::fill(m_win_data.begin(), m_win_data.end(), T());
 

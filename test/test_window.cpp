@@ -19,15 +19,17 @@ int main(int argc, char** argv)
     Shtensor::Log::info(logger, "Hello from rank {} on host {}", 
                         ctx.get_rank(),  ctx.get_host_name());
 
-    Shtensor::Window<int> win = Shtensor::shmem::allocate<int>(ctx, 1000);
+    auto shmem = Shtensor::ShmemInterface{ctx};
+
+    Shtensor::Window<int> win = shmem.allocate<int>(1000);
 
     const int left = ctx.get_left_neighbour();
     const int right = ctx.get_right_neighbour();
     const int rank = ctx.get_rank();
 
-    Shtensor::shmem::put_nb(ctx, &rank, win.begin(), 1, right);
+    shmem.put_nb(&rank, win.begin(), 1, right);
 
-    Shtensor::shmem::barrier(ctx);
+    shmem.barrier();
 
     SHTENSOR_TEST_EQUAL(win[0], left, result);
 

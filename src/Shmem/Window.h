@@ -6,6 +6,7 @@
 namespace Shtensor
 {
 
+// Basically a span that owns the memory region it points to
 template <typename T>
 class Window 
 {
@@ -30,11 +31,11 @@ class Window
   {
   }
 
-  Window(const Window& _win) = default;
+  Window(const Window& _win) = delete;
 
   Window(Window&& _win) = default;
 
-  Window& operator=(const Window& _win) = default;
+  Window& operator=(const Window& _win) = delete;
 
   Window& operator=(Window&& _win) = default;
 

@@ -24,17 +24,17 @@ MemoryPool::MemoryPool(MPI_Comm _comm, int64_t _max_size)
   , m_logger(Log::create("MemoryPool"))
 {
 
-  auto shmem_window_deleter = [](MPI_Win* _p_win)
-  {
-    if (_p_win)
-    {
-      if (*_p_win != MPI_WIN_NULL)
-      {
-        MPI_Win_free(_p_win);
-      }
-      delete _p_win;
-    }
-  };
+  // auto shmem_window_deleter = [](MPI_Win* _p_win)
+  // {
+  //   if (_p_win)
+  //   {
+  //     if (*_p_win != MPI_WIN_NULL)
+  //     {
+  //       MPI_Win_free(_p_win);
+  //     }
+  //     delete _p_win;
+  //   }
+  // };
 
   auto window_deleter = [this](MPI_Win* _pwin)
   {
@@ -43,14 +43,13 @@ MemoryPool::MemoryPool(MPI_Comm _comm, int64_t _max_size)
       if (*_pwin != MPI_WIN_NULL)
       {
         MPI_Win_unlock_all(*_pwin);
-        MPI_Win_detach(*_pwin, m_p_data);
         MPI_Win_free(_pwin);
       }
       delete _pwin;
     }
   };
 
-  m_p_shmem_window.reset(new MPI_Win(MPI_WIN_NULL), shmem_window_deleter);
+  //m_p_shmem_window.reset(new MPI_Win(MPI_WIN_NULL), shmem_window_deleter);
   m_p_window.reset(new MPI_Win(MPI_WIN_NULL), window_deleter);
 
   // TO DO: ALLOC SHARED NON CONTIGUOUS!!
