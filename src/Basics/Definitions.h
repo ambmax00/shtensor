@@ -1,9 +1,11 @@
 #ifndef SHTENSOR_DEFINITIONS_H
 #define SHTENSOR_DEFINITIONS_H
 
+#include <array>
 #include <cstdint>
 #include <limits>
 #include <type_traits>
+#include <vector>
 
 #include <mpi.h>
 
@@ -79,6 +81,21 @@ constexpr static inline int64_t KiB = 1024;
 constexpr static inline int64_t MiB = KiB*1024;
 constexpr static inline int64_t GiB = MiB*1024;
 constexpr static inline int64_t TiB = GiB*1024; // will probably never be used, but one can dream
+
+enum class FloatType 
+{
+  FLOAT32 = 0,
+  FLOAT64 = 1
+};
+
+template <int N>
+using VArray = std::array<std::vector<int>,N>;
+
+template <typename T>
+using VVector = std::vector<std::vector<T>>;
+
+template <typename T>
+using VPVector = std::vector<std::vector<T>*>;
 
 } // end namespace Shtensor
 

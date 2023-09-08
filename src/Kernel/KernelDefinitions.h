@@ -8,12 +8,6 @@
 namespace Shtensor
 {
 
-enum class FloatType 
-{
-  FLOAT32 = 0,
-  FLOAT64 = 1
-};
-
 enum class KernelType
 {
   LAPACK = 0,

@@ -186,11 +186,23 @@ static constexpr inline void unroll_index(const StrideArray& _strides,
   unroll_index_impl(_strides, _idx, _indices, std::make_index_sequence<ARRAY_SSIZE(_strides)>{});
 }
 
+template <class StrideArray, class LongIndexType, class IndexArray>
+static constexpr inline void unroll_index(const StrideArray& _strides, int _n,
+                                          LongIndexType _idx,
+                                          IndexArray& _indices)
+{
+  for (int i = 0; i < _n; ++i)
+  {
+    _indices[_n-i-1] = _idx / _strides[_n-i-1];
+    _idx = _idx % _strides[_n-i-1];
+  }
+}
+
 template <int N>
-using LoopIndexFunction = std::function<void(const std::array<int,N>& _loop_indices)>;
+using LoopIndexFunctionN = std::function<void(const std::array<int,N>& _loop_indices)>;
 
 template <int N, int Step, class MultiArray>
-static inline void loop_internal(const MultiArray& _array, const LoopIndexFunction<N>& _func, 
+static inline void loop_internal(const MultiArray& _array, const LoopIndexFunctionN<N>& _func, 
                                  std::array<int,N>& _idx)
 {
   if constexpr (Step == N) 
@@ -208,10 +220,38 @@ static inline void loop_internal(const MultiArray& _array, const LoopIndexFuncti
 }
 
 template <int N, class MultiArray>
-static inline void loop_idx(const MultiArray& _array, const LoopIndexFunction<N>& _func)
+static inline void loop_idx(const MultiArray& _array, const LoopIndexFunctionN<N>& _func)
 {
   std::array<int,N> idx = {};
   loop_internal<N,0,MultiArray>(_array,_func,idx);
+}
+
+using LoopIndexFunction = std::function<void(const std::vector<int>& _loop_indices)>;
+
+template <class MultiArray>
+static inline void loop_internal(const MultiArray& _array,int _step, int _n, 
+                                 const LoopIndexFunction& _func, std::vector<int> _idx)
+{
+  if (_step == _n)
+  {
+    _func(_idx);
+  }
+  else
+  {
+    for (int64_t i = 0; i < Utils::ssize(_array[_step]); ++i)
+    {
+      _idx[_step] = i;
+      loop_internal<MultiArray>(_array, _step+1, _n, _func, _idx);
+    }
+  }
+}
+
+template <class MultiArray>
+static inline void loop_idx(const MultiArray& _array, const LoopIndexFunction& _func)
+{
+  const int n = Utils::ssize(_array);
+  std::vector<int> idx(n,0);
+  loop_internal<MultiArray>(_array, 0, n, _func, idx);
 }
 
 template <class MultiArray>
@@ -362,6 +402,21 @@ constexpr bool is_valid_float_type()
   }
 }
 
+template <typename T>
+static constexpr inline FloatType float_type()
+{
+  static_assert(is_valid_float_type<T>(), "Invalid float type");
+
+  if constexpr (std::is_same<float,T>::value)
+  {
+    return FloatType::FLOAT32;
+  }
+  if constexpr (std::is_same<double,T>::value)
+  {
+    return FloatType::FLOAT64;
+  }
+}
+
 template <class T>
 constexpr typename std::enable_if<is_valid_float_type<T>(),bool>::type bit_equal(T _a, T _b)
 {
@@ -377,6 +432,25 @@ round_next_multiple(T _val, T _factor)
 {    
     T is_pos = (T)(_val >= 0);
     return ((_val + is_pos * (_factor - 1)) / _factor) * _factor;
+}
+
+constexpr static inline int float_size(FloatType _ftype)
+{
+  switch (_ftype)
+  {
+    case FloatType::FLOAT32:
+    {
+      return 4;
+    }
+    case FloatType::FLOAT64:
+    {
+      return 8;
+    }
+    default:
+    {
+      return 0;
+    }
+  }
 }
 
 } // end namespace Utils 

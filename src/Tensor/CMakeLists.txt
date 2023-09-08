@@ -1,4 +1,5 @@
 set(SOURCES 
+    BaseTensor.cpp
     Tensor.cpp) 
 
 add_library(shtensor_tensor ${SOURCES})

@@ -1,5 +1,6 @@
 set(SOURCES 
     Context.cpp 
+    Grid.cpp
     MemoryPool.cpp) 
 
 add_library(shtensor_shmem ${SOURCES})
