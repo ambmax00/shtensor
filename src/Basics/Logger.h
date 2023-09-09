@@ -107,7 +107,28 @@ static inline void debug(Logger& _logger, const std::string _msg, Args&&... _arg
 {
   if constexpr (g_loglevel >= g_loglevel_debug)
   {
-   const std::string new_msg = fmt::format("[DEBUG] <{}> {}\n", _logger.get_name(), _msg);
+    // Get the current time with milliseconds
+    auto now = std::chrono::system_clock::now();
+    
+    // Extract hours, minutes, seconds, and milliseconds
+    auto time_point = std::chrono::system_clock::to_time_t(now);
+    auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
+      now.time_since_epoch()) % 1000;
+
+    std::tm time_info = *std::localtime(&time_point);
+    
+    int hours = time_info.tm_hour;
+    int minutes = time_info.tm_min;
+    int seconds = time_info.tm_sec;
+    int ms = milliseconds.count();
+    
+    // Format the time to include milliseconds using fmt
+    std::string formatted_time = fmt::format("{:02d}:{:02d}:{:02d}:{:03d}", 
+                                             hours, minutes, seconds, ms);
+    
+   const std::string new_msg = fmt::format("[DEBUG] {} <{}> {}\n", formatted_time, 
+    _logger.get_name(), _msg);
+
    _logger.print(new_msg, std::forward<Args>(_args)...);
   }
 }

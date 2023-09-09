@@ -337,7 +337,7 @@ template <typename T, int N>
 void Tensor<T,N>::filter(T _eps, BlockNorm _norm, bool _compress)
 {
   {
-    ThreadPool tpool(2*m_ctx.get_nb_threads());
+    ThreadPool tpool(m_ctx.get_nb_threads());
 
     int64_t start = 0;
     int64_t end = m_sinfo_local.nb_nzblocks;

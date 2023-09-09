@@ -97,6 +97,8 @@ int main(int argc, char** argv)
       const bool expected_empty = (iblk % 2 == 0);
       const bool is_empty = (iter.get_block_index() < 0);
 
+      fmt::print("Blk idx: {} {}\n", iblk, iter.get_block_index());
+
       nb_blocks += (is_empty) ? 0 : 1;
 
       SHTENSOR_TEST_EQUAL(expected_empty, is_empty, result);

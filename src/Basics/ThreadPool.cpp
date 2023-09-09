@@ -18,6 +18,7 @@ ThreadPool::ThreadPool(int _nb_threads)
   , m_loop_step()
   , m_loop_function()
   , m_tasks_done_idx(0)
+  , m_start{false}
   , m_stop(false)
   , m_thread_barrier(_nb_threads)
   , m_logger(Log::create("ThreadPool"))
@@ -67,7 +68,7 @@ void ThreadPool::thread_loop(int _id)
     {
       std::unique_lock<std::mutex> lock(m_m2t_mutex);
       m_m2t_condition.wait(lock, [this,_id]() 
-        { return m_stop || m_loop_p_index[_id]->load() < m_loop_end[_id]; });
+        { return m_stop || m_start; });
     }
 
     // check for termination
@@ -136,6 +137,12 @@ void ThreadPool::thread_loop(int _id)
     }
 
     Log::debug(m_logger, "Thread {} syncing", _id);
+
+    if (_id == 0)
+    {
+      m_start = false;
+    }
+
     m_thread_barrier.wait();
 
   }
@@ -170,6 +177,8 @@ void ThreadPool::run(int64_t _start, int64_t _end, int64_t _step, LoopFunction&&
       *m_loop_p_index[t] = thread_start;
       m_loop_end[t] = thread_end;
     }
+
+    m_start = true;
   }
 
   m_m2t_condition.notify_all();

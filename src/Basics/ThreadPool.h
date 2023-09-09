@@ -55,9 +55,13 @@ class ThreadPool
 
   std::atomic<int> m_tasks_done_idx;
 
+  bool m_start;
+
   bool m_stop;
 
   ThreadBarrier m_thread_barrier;
+
+  std::vector<int> m_thread_is_ready;
 
   Log::Logger m_logger;
 
