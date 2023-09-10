@@ -77,9 +77,12 @@ int main(int argc, char** argv)
     // fill every block with 0s and 1s alternatively then filter
     
 
-    for (int iblk = 0; iblk < tensor4.get_nb_nzblocks_local(); ++iblk)
+    for (auto iter = tensor4.begin(); iter != tensor4.end(); ++iter)
     {
-      const float val = (iblk % 2 == 0) ? 0.f : 1.f;
+      const int64_t iblk = iter - tensor4.begin();
+      const int64_t blkid = iter.get_block_index();
+
+      const float val = (blkid % 2 == 0) ? 0.f : 1.f;
 
       auto block = tensor4.get_local_block(iblk);
 
@@ -94,10 +97,11 @@ int main(int argc, char** argv)
     for (auto iter = tensor4.begin(); iter != tensor4.end(); ++iter)
     { 
       const int64_t iblk = iter - tensor4.begin();
-      const bool expected_empty = (iblk % 2 == 0);
-      const bool is_empty = (iter.get_block_index() < 0);
+      const int64_t blkid = iter.get_block_index();
+      const int64_t ablkid = (blkid >= 0) ? blkid : -(blkid+1);
 
-      fmt::print("Blk idx: {} {}\n", iblk, iter.get_block_index());
+      const bool expected_empty = (ablkid % 2 == 0);
+      const bool is_empty = (blkid < 0);
 
       nb_blocks += (is_empty) ? 0 : 1;
 
