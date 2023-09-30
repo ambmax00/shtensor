@@ -16,3 +16,7 @@ register_test(window)
 register_test(threadpool)
 register_test(contract)
 register_test(kernel)
+
+add_executable(test_btree test_btree.cpp)
+target_link_libraries(test_btree shtensor)
+add_test(Test_btree ${CMAKE_CURRENT_BINARY_DIR}/test_btree)
