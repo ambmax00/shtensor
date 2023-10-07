@@ -40,12 +40,12 @@ class Logger
   Logger& operator=(Logger&& _logger) = default;
 
   template <typename... Args>
-  void print(const std::string& _msg, Args&&... _args)
+  void print(const std::string& _msg, Args&&... _args) const
   {
     fmt::print(*m_pp_stream, _msg, std::forward<Args>(_args)...);
   }
 
-  const std::string& get_name()
+  const std::string& get_name() const
   {
     return m_name;
   }
@@ -103,7 +103,7 @@ static inline void info(Logger& _logger, const std::string _msg, Args&&... _args
 }
 
 template <typename... Args>
-static inline void debug(Logger& _logger, const std::string _msg, Args&&... _args)
+static inline void debug(const Logger& _logger, const std::string _msg, Args&&... _args)
 {
   if constexpr (g_loglevel >= g_loglevel_debug)
   {
