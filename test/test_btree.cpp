@@ -4,10 +4,10 @@
 #define CHECK_RETURN() \
   if (result) return result
 
-int main()
-{
-  auto logger = Shtensor::Log::create("test");
+auto logger = Shtensor::Log::create("test");
 
+int test_order4()
+{
   int result = 0;
 
   auto tree = Shtensor::BTree<int64_t>(4);
@@ -233,6 +233,74 @@ int main()
     fmt::print("{}:{}\n", iter.key(), *iter);
   }
   
+
+  return result;
+}
+
+int test_order6()
+{
+  int result = 0;
+
+  Shtensor::BTree<int> tree(6);
+
+  // insert many
+  for (int i = 0; i < 120; ++i)
+  {
+    tree.insert(i,i);
+  }
+
+  SHTENSOR_TEST_TRUE(tree.is_valid(), result);
+  SHTENSOR_TEST_EQUAL(tree.size(), 120, result);
+  fmt::print("{}\n", tree.make_pretty());
+
+  CHECK_RETURN();
+
+  // underflow leafs
+  tree.erase(8);
+  tree.erase(9);
+  tree.erase(4);
+
+  SHTENSOR_TEST_TRUE(tree.is_valid(), result);
+  SHTENSOR_TEST_EQUAL(tree.size(), 117, result);
+  fmt::print("{}\n", tree.make_pretty());
+
+  // trigger leaf merge
+  tree.erase(5);
+
+  SHTENSOR_TEST_TRUE(tree.is_valid(), result);
+  SHTENSOR_TEST_EQUAL(tree.size(), 116, result);
+  fmt::print("{}\n", tree.make_pretty());
+
+  CHECK_RETURN();
+
+  // internal leaf merge
+  tree.erase(79);
+
+  SHTENSOR_TEST_TRUE(tree.is_valid(), result);
+  SHTENSOR_TEST_EQUAL(tree.size(), 115, result);
+  fmt::print("{}\n", tree.make_pretty());
+
+  CHECK_RETURN();
+
+  // remove root
+  tree.erase(63);
+
+  SHTENSOR_TEST_TRUE(tree.is_valid(), result);
+  SHTENSOR_TEST_EQUAL(tree.size(), 114, result);
+  fmt::print("{}\n", tree.make_pretty());
+
+  CHECK_RETURN();
+
+  return result;
+}
+
+int main()
+{
+  int result = 0;
+
+  result += test_order4();
+
+  result += test_order6();
 
   return result;
 }

@@ -431,34 +431,30 @@ void BTree<T>::insert(int64_t _index, T _value)
   {
     Log::debug(m_logger, "Current node: {}", (void*)p_node);
 
-    auto p_indices = p_node->indices();
-    auto p_values = p_node->values();
-    auto p_children = p_node->children();
-
     // empty root node, just put it in
     if (p_node->size == 0)
     {
       Log::debug(m_logger, "Inserting in root");
 
-      p_indices[0] = _index;
-      p_values[0] = _value;
+      p_node->indices()[0] = _index;
+      p_node->values()[0] = _value;
       p_node->size = 1;
       m_max_depth = 1;
       break;
     }
 
     // find lower bound
-    auto p_lb = std::lower_bound(p_indices, p_indices+p_node->size, _index,
+    auto p_lb = std::lower_bound(p_node->indices(), p_node->indices_end(), _index,
       [](auto a, auto b) { return a <= b; });
 
-    const bool is_last = (p_lb == p_indices+p_node->size);
-    const int lb_idx = p_lb-p_indices;
+    const bool is_last = (p_lb == p_node->indices_end());
+    const int lb_idx = p_lb-p_node->indices();
 
     // if equal, replace
     if (!is_last && *p_lb == _index)
     {
       Log::debug(m_logger, "Replacing value for index {}", _index);
-      p_values[lb_idx] = _value;
+      p_node->values()[lb_idx] = _value;
       break;
     }
 
@@ -471,11 +467,11 @@ void BTree<T>::insert(int64_t _index, T _value)
     }
 
     // If we are not at the bottom of the tree, go to next child
-    if (p_children[lb_idx])
+    if (p_node->children()[lb_idx])
     {
       Log::debug(m_logger, "Going to next child");
       p_prev = p_node;
-      p_node = p_children[lb_idx];
+      p_node = p_node->children()[lb_idx];
       path[idepth] = p_prev;
       pos[idepth+1] = lb_idx;
       ++idepth;
@@ -502,10 +498,6 @@ void BTree<T>::erase(int64_t _index)
   {
     Log::debug(m_logger, "Current node: {}", (void*)p_node);
 
-    auto p_indices = p_node->indices();
-    auto p_values = p_node->values();
-    auto p_children = p_node->children();
-
     // empty root node, just put it in
     if (p_node->size == 0)
     {
@@ -514,11 +506,10 @@ void BTree<T>::erase(int64_t _index)
     }
 
     // find lower bound
-    auto p_lb = std::lower_bound(p_indices, p_indices+p_node->size, _index,
+    auto p_lb = std::lower_bound(p_node->indices(), p_node->indices_end(), _index,
       [](auto a, auto b) { return a <= b; });
 
-    const bool is_last = (p_lb == p_indices+p_node->size);
-    const int lb_idx = p_lb-p_indices;
+    const int lb_idx = p_lb-p_node->indices();
 
     // if equal, delete
     if ((lb_idx != 0) && *(p_lb-1) == _index)
@@ -536,11 +527,11 @@ void BTree<T>::erase(int64_t _index)
     }
 
     // If we are not at the bottom of the tree, go to next child
-    if (p_children[lb_idx])
+    if (p_node->children()[lb_idx])
     {
       Log::debug(m_logger, "Going to next child");
       p_prev = p_node;
-      p_node = p_children[lb_idx];
+      p_node = p_node->children()[lb_idx];
       path[idepth] = p_prev;
       ++idepth;
       continue;
@@ -564,15 +555,11 @@ void BTree<T>::insert_node(Node* _p_node,
 {
   Log::debug(m_logger, "Insert node {}", (void*)_p_node);
 
-  int64_t* p_indices = _p_node->indices();
-  T* p_values = _p_node->values();
-  Node** p_children = _p_node->children();
-
   // find lower bound
-  auto p_lb = std::lower_bound(p_indices, p_indices+_p_node->size, _index,
+  auto p_lb = std::lower_bound(_p_node->indices(), _p_node->indices_end(), _index,
     [](auto a, auto b) { return a <= b; });
 
-  const int lb_idx = p_lb-p_indices;
+  const int lb_idx = p_lb-_p_node->indices();
 
   Log::debug(m_logger, "Inserting at pos {} index {} of value {} at depth {} with size {}", 
              lb_idx, _index, _value, _idepth, _p_node->size);
@@ -585,7 +572,7 @@ void BTree<T>::insert_node(Node* _p_node,
   
   if (_p_node->size == m_order)
   {
-    // overflow occurred
+    // overflow occurred 
     Log::debug(m_logger, "Overflow");
 
     split_node(_p_node, _path, _pos, _idepth);
@@ -702,13 +689,9 @@ void BTree<T>::erase_node(Node* _p_node, std::vector<Node*>& _path, int _idepth,
 {
   Log::debug(m_logger, "erase index {} on node {}", _index, (void*)_p_node);
 
-  int64_t* p_indices = _p_node->indices();
-  T* p_values = _p_node->values();
-  Node** p_children = _p_node->children();
-
   // find index
-  auto p_lb = std::find(p_indices, p_indices+_p_node->size, _index);
-  const int lb_idx = p_lb-p_indices;
+  auto p_lb = std::find(_p_node->indices(), _p_node->indices_end(), _index);
+  const int lb_idx = p_lb-_p_node->indices();
 
   // case 1: node is leaf
   if ((_idepth == m_max_depth-1))
@@ -722,10 +705,10 @@ void BTree<T>::erase_node(Node* _p_node, std::vector<Node*>& _path, int _idepth,
 
     _p_node->size--;
 
-    Log::debug(m_logger, "Indices: {}", fmt::join(p_indices, p_indices+_p_node->size, ","));
+    Log::debug(m_logger, "Indices: {}", fmt::join(_p_node->indices(), _p_node->indices_end(), ","));
 
-    // done if node is not empty
-    if (_p_node->size > 0) return;
+    // done if node does not undeflow
+    if (_p_node->size+1 >= m_order/2) return;
 
     _path[_idepth] = _p_node;
     rebalance_node(_p_node, _path, _idepth);
@@ -760,7 +743,7 @@ void BTree<T>::erase_node(Node* _p_node, std::vector<Node*>& _path, int _idepth,
 
     p_offspring->size--;
 
-    if (p_offspring->size == 0)
+    if (p_offspring->size+1 < m_order/2)
     {
       merge_node(p_offspring, _path, jdepth);
     }
@@ -781,8 +764,8 @@ void BTree<T>::rebalance_node(Node* _p_node, std::vector<Node*>& _path, int _ide
   Node* p_left_neighbour = get_neighbour(_p_node, _path, _idepth, true);
   Node* p_right_neighbour = get_neighbour(_p_node, _path, _idepth, false);
 
-  const bool left_valid = p_left_neighbour && p_left_neighbour->size > 1;
-  const bool right_valid = p_right_neighbour && p_right_neighbour->size > 1;
+  const bool left_valid = p_left_neighbour && p_left_neighbour->size+1 > m_order/2;
+  const bool right_valid = p_right_neighbour && p_right_neighbour->size+1 > m_order/2;
 
   // case 1 : left neighbour is larger than minimum
   if (left_valid) 
@@ -792,7 +775,7 @@ void BTree<T>::rebalance_node(Node* _p_node, std::vector<Node*>& _path, int _ide
     // and put index from spot nchild-1 in current node
     // put last child of left neighbour into first child of current node
     const int nchild = std::find(p_parent->children(), p_parent->children()+p_parent->size+1,
-                                _p_node) - p_parent->children();
+      _p_node) - p_parent->children();
 
     const int64_t left_index = p_left_neighbour->indices()[p_left_neighbour->size-1];
     const T left_value = p_left_neighbour->values()[p_left_neighbour->size-1];
@@ -867,7 +850,6 @@ void BTree<T>::merge_node(Node* _p_node, std::vector<Node*>& _path, int _idepth)
 {
   Log::debug(m_logger, "Merging node {}", (void*)_p_node);
 
-  // _p_node is assumed empty, children()[0] may contain a single node from a previous merge
   // Merge parent with left or right neighbor
   //Node* p_left = get_neighbour(_p_node, _path, _idepth, true);
   //Node* p_right = (p_left) ? nullptr : get_neighbour(_p_node, _path, _idepth, false);
@@ -877,66 +859,49 @@ void BTree<T>::merge_node(Node* _p_node, std::vector<Node*>& _path, int _idepth)
   const int idx = std::find(p_parent->children(), p_parent->children_end(), _p_node)
                   - p_parent->children();
 
+  // sibling index
   const int sibling_idx = (idx == 0) ? 1 : idx-1;
 
-  Log::debug(m_logger, "Merging sibling with index {} to empty sibling {}", sibling_idx, idx);
+  // separator index
+  const int sep_idx = (idx == 0) ? 0 : idx-1;
+
+  Log::debug(m_logger, "Merging sibling with index {} to sibling {}", sibling_idx, idx);
 
   Node* p_sibling = p_parent->children()[sibling_idx];
 
-  if (_p_node->size != 0)
-  {
-    throw std::runtime_error("Cannot merge, node does not have size 0");
-  }
+  Node* p_left = (idx == 0) ? _p_node : p_sibling;
+  Node* p_right = (idx == 0) ? p_sibling : _p_node;
 
-  // pull down part of parent into sibling
-  if (idx == 0)
-  {
-    Log::debug(m_logger, "Sibling has size {}", p_sibling->size);
+  // put separator into end of left node
+  p_left->indices_end()[0] = p_parent->indices()[sep_idx];
+  p_left->values_end()[0] = p_parent->values()[sep_idx];
+  p_left->size++;
 
-     // shift stuff in sibling to right
-    std::copy_backward(p_sibling->indices(), p_sibling->indices_end(), p_sibling->indices_end()+1);
-    std::copy_backward(p_sibling->values(), p_sibling->values_end(), p_sibling->values_end() + 1);
-    std::copy_backward(p_sibling->children(), p_sibling->children_end(), p_sibling->children_end() + 1);
+  // append right node
+  std::copy(p_right->indices(), p_right->indices_end(), p_left->indices_end());
+  std::copy(p_right->values(), p_right->values_end(), p_left->values_end());
+  std::copy(p_right->children(), p_right->children_end(), p_left->children_end()-1); // -1 !!!
+  p_left->size += p_right->size;
 
-    // copy index from parent to sibling
-    p_sibling->indices()[0] = p_parent->indices()[0];
-    p_sibling->values()[0] = p_parent->values()[0];
-    p_sibling->children()[0] = _p_node->children()[0];
+  // rearrange parent
+  std::copy(p_parent->indices()+sep_idx+1, p_parent->indices_end(), p_parent->indices()+sep_idx);
+  std::copy(p_parent->values()+sep_idx+1, p_parent->values_end(), p_parent->values()+sep_idx);
+  std::copy(p_parent->children()+sep_idx+2, p_parent->children_end(), 
+            p_parent->children()+sep_idx+1);
+  p_parent->size--;
 
-    p_sibling->size++;
-    p_parent->size--;
+  deallocate_node(p_right);
 
-    p_parent->children()[0] = p_sibling;
-  }
-  else
-  {
-    // put parent index into sibling
-    p_sibling->indices_end()[0] = p_parent->indices()[idx-1];
-    p_sibling->values_end()[0] = p_parent->values()[idx-1];
-    p_sibling->children_end()[0] = _p_node->children()[0];
+  Log::debug(m_logger, "Merged node: {}", fmt::join(p_left->indices(), p_left->indices_end(), ","));
 
-    // shift stuff in parent to left
-    if (p_parent->size > 1)
-    {
-      std::copy(p_parent->indices()+idx, p_parent->indices_end(), p_parent->indices()+idx-1);
-      std::copy(p_parent->values()+idx, p_parent->values_end(), p_parent->values()+idx-1);
-      std::copy(p_parent->children()+idx+1, p_parent->children_end(), p_parent->children()+idx);
-    }
-  
-    p_sibling->size++;
-    p_parent->size--;
-  }
-
-  deallocate_node(_p_node);
-
-  if (p_parent != mp_root && p_parent->size == 0)
+  if (p_parent != mp_root && p_parent->size+1 < m_order/2)
   {
     rebalance_node(p_parent, _path, _idepth-1);
   }
-  else if (p_parent == mp_root)
+  else if (p_parent == mp_root && p_parent->size == 0)
   {
     deallocate_node(p_parent);
-    mp_root = p_sibling;
+    mp_root = p_left;
     m_max_depth--;
   }
   
@@ -1125,22 +1090,35 @@ bool BTree<T>::is_valid()
       break;
     }
 
-    if ((p_node != mp_root && p_node->size <= 0) || p_node->size > m_order-1)
+    // Internal node has to have at least order/2 children
+    // Any node cannot have more than order children
+    if ((p_node != mp_root && p_node->size+1 < m_order/2) || p_node->size+1 > m_order)
     {
-      Log::error(m_logger, "Bad size on node {}. Got {}", (void*)p_node, p_node->size);
+      Log::error(m_logger, "Node {}: Bad size, got {}", (void*)p_node, p_node->size);
       return false;
-    }
+    } 
 
+    // Array needs to be sorted
     if (!std::is_sorted(p_node->indices(), p_node->indices_end()))
     {
-      Log::error(m_logger, "Indices are not ordered");
+      Log::error(m_logger, "Node {}: Indices are not ordered", (void*)p_node);
       return false;
     }
 
+    // Internal node cannot have NULL child
     if (depth != m_max_depth 
         && std::find(p_node->children(), p_node->children_end(), nullptr) != p_node->children_end())
     {
-      Log::error(m_logger, "Invalid child");
+      Log::error(m_logger, "Node {}: Invalid child", (void*)p_node);
+      return false;
+    }
+
+    // all leafs need to be at same level
+    if (depth == m_max_depth
+        && !std::all_of(p_node->children(), p_node->children_end(), 
+                        [](auto _pchild) { return !_pchild; }))
+    {
+      Log::error(m_logger, "Node {}: Leaf node has children", (void*)p_node);
       return false;
     }
 
