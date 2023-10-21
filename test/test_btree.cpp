@@ -294,13 +294,40 @@ int test_order6()
   return result;
 }
 
+int test_bulkload()
+{
+  int result = 0;
+
+  const int64_t nelements = 100;
+  std::vector<int64_t> indices(nelements,0);
+  std::vector<int> values(nelements,0);
+
+  std::iota(indices.begin(), indices.end(), 0);
+
+  auto btree = Shtensor::BTree<int>(8, 
+                                    Shtensor::Span<int64_t>(indices.data(), indices.size()), 
+                                    Shtensor::Span<int>(values.data(), values.size()));
+
+  SHTENSOR_TEST_TRUE(btree.is_valid(), result);
+  SHTENSOR_TEST_EQUAL(btree.size(), 100, result);
+  fmt::print("{}\n", btree.make_pretty());   
+
+  return result;                           
+}
+
 int main()
 {
   int result = 0;
 
   result += test_order4();
 
+  CHECK_RETURN();
+
   result += test_order6();
+
+  CHECK_RETURN();
+
+  result += test_bulkload();
 
   return result;
 }

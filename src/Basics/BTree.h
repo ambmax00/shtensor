@@ -1,6 +1,7 @@
 #ifndef SHTENSOR_BTREE_H
 #define SHTENSOR_BTREE_H
 
+#include "BlockSpan.h"
 #include "Definitions.h"
 #include "Logger.h"
 #include "Utils.h"
@@ -84,10 +85,8 @@ class BTree
   BTree(int order);
 
   BTree(int _order, 
-        int64_t* _pindices_begin, 
-        int64_t* _pindices_end, 
-        T* _pvalues_begin,
-        T* _pvalues_end);
+        const Span<int64_t>& _indices, 
+        const Span<T>& _values);
 
   ~BTree();
 
@@ -285,6 +284,8 @@ class BTree
  
  protected:
 
+  Node* bulk_load(const Span<int64_t>& _indices, const Span<T>& _values);
+
   void node_depth_init(std::vector<Node*>& _path, int64_t& _size)
   {
     _path = std::vector<Node*>(m_max_depth,nullptr);
@@ -379,16 +380,72 @@ BTree<T>::BTree(int _order)
 
 template <typename T>
 BTree<T>::BTree(int _order, 
-                int64_t* _pindices_begin, 
-                int64_t* _pindices_end, 
-                T* _pvalues_begin,
-                T* _pvalues_end)
+                const Span<int64_t>& _indices, 
+                const Span<T>& _values)
   : m_order{_order}
   , m_max_depth{0}
   , mp_root{nullptr}
   , m_logger{Log::create("BTree")}
 {
-  mp_root = allocate_node();
+  mp_root = bulk_load(_indices, _values);
+}
+
+template <typename T>
+typename BTree<T>::Node* BTree<T>::bulk_load(const Span<int64_t>& _indices, 
+                                             const Span<T>& _values)
+{
+  Node* p_node = allocate_node();
+
+  // Everything fits into node
+  if (_indices.ssize() < m_order)
+  {
+    std::copy(_indices.begin(), _indices.end(), p_node->indices());
+    std::copy(_values.begin(), _values.end(), p_node->values());
+    p_node->size = _indices.ssize();
+    return p_node;
+  }
+
+  // else split in chunks that are large enough
+  int64_t nb_chunks = 0;
+
+  for (int64_t div = m_order; div >= m_order/2; --div)
+  {
+    const int64_t chunk_size = (_indices.ssize()-div-1)/div;
+    if (chunk_size >= m_order/2)
+    {
+      nb_chunks = div;
+      break;
+    }
+  }
+
+  // Just throw for now, no idea how I want to do error handling at the moment tbh
+  if (nb_chunks == 0)
+  {
+    throw std::runtime_error("Failed to bulk load array into BTree");
+  }
+
+  DEBUG_VAR(m_logger, nb_chunks);
+  const int64_t chunk_size = _indices.ssize()/nb_chunks;
+  
+  for (int64_t i = 0; i < nb_chunks-1; ++i)
+  {
+    const int64_t pos = (i+1)*chunk_size-1;
+    p_node->indices()[pos] = _indices[pos];
+    p_node->values()[pos] = _values[pos];
+  }
+
+  // now address children
+  for (int64_t ichild = 0; ichild < nb_chunks; ++ichild)
+  {
+    const int64_t istart = ichild*chunk_size;
+    const int64_t iend = std::min(_indices.ssize(), (ichild+1)*chunk_size-1);
+    p_node->children()[ichild] = bulk_load(
+                          Span<int64_t>{const_cast<int64_t*>(_indices.data())+istart, iend-istart},
+                          Span<T>{const_cast<T*>(_values.data())+istart, iend-istart});
+  }
+
+  return p_node;
+
 }
 
 template <typename T>
